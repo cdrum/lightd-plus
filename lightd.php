@@ -153,13 +153,17 @@ class API_Server extends HTTP_Server {
 				break;
 
 				case "color":
-				$rgb = "#" . strtok($args[0], "K");
-				$kelvin = strtok("")
-				or $kelvin = 6500;
+				$extraargs = explode("-",$args[0]);
+				$rgb = "#" . $extraargs[0];
+				$hue= $extraargs[1];
+				$saturation = $extraargs[2];
+				$brightness = $extraargs[3];
+				$dim = $extraargs[4];
+				$kelvin = $extraargs[5];
 				if ($args[1]) {
-					Light::Get_By_Name($args[1])->Set_Color($rgb, [ "kelvin" => $kelvin ]);
+					Light::Get_By_Name($args[1])->Set_Color($rgb, [ "hue" => $hue, "saturation" => $saturation, "brightness" => $brightness, "dim" => $dim, "kelvin" => $kelvin]);
 				} else {
-					$GLOBALS["lifx"]->Set_Color($rgb, [ "kelvin" => $kelvin ]);
+					$GLOBALS["lifx"]->Set_Color($rgb, [ "hue" => $hue, "saturation" => $saturation, "brightness" => $brightness, "kelvin" => $kelvin, "dim" => $dim]);
 				}
 				break;
 
