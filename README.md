@@ -45,15 +45,15 @@ examples:
 ##### Set color
 
 ```
-/color/<color>[K<temperature>][/<bulb_label>]
+/color/<rgb>-<hue>-<saturation>-<brightness>-<dim>-<kelvin>[/<bulb_label>]
 ```
 
 if bulb_label is not given, the color is applied to all bulbs in the lifx mesh
 
 examples:
-* /color/ffffff/Kitchen
-* /color/404040K3500/Living
-* /color/002040
+* /color/002040-21845-35000-65535-0-3500
+* /color/ffffff-21845-35000-65535-0-3500/Kitchen
+* /color/002040-0-0-22955-0-3500/Kitchen
 
 ##### Set pattern
 
