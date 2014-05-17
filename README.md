@@ -2,14 +2,16 @@ lightd
 ======
 
 lightd is a simple HTTP gateway for the lifx binary protocol
+This update eliminates the need for a fixed IP/known list of gateways. This script will now 
+monitor the entire address space for gateways and control bulbs from all gateways.
 
 #### Requirements
 
 - command line PHP binary (>= 5.4)
-- configured lifx bulbs with fixed address or hostname
+- configured lifx bulbs in the same subnet as the computer running this script
 
-lightd tries to connect to the lifx gateway bulb using hostname "lifx" and port
-56700 and provides its REST API on port 5439, you may change these values at
+lightd will send a broadcast request to the subnet asking for gateways to identify themselves.
+Assuming they do, this script will provides its REST API on port 5439, you may change these values at
 the top of lightd.php
 
 if everything is set up correctly, you should see something like this when you
