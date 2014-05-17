@@ -30,6 +30,8 @@ const VERSION = "0.9.0";
 const LIFX_HOST = "lifx";
 const LIFX_PORT = 56700;
 
+const BUILD_GW_PASSES = 10;
+
 const API_LISTEN_ADDR = "0.0.0.0";
 const API_LISTEN_PORT = 5439;
 
@@ -215,6 +217,95 @@ function log($msg) {
 	echo date("Ymd:His") . " " . $msg . "\n";
 }
 
+function build_gateways() {
+	
+	log("Getting Gateways");
+	
+	// Create packet for requesting gateways
+	$packet = new Lifx_Packet(0x02);
+	$broadcast_string = $packet->Encode();
+
+	// Make socket for broadcasting request on network
+	log("Creating broadcast socket");
+	$broadcast_socket = socket_create(AF_INET, SOCK_DGRAM, SOL_UDP); 
+	if ($broadcast_socket == false) { die("SendSock: ".socket_strerror(socket_last_error())); } 
+
+	$setopt = socket_set_option($broadcast_socket, SOL_SOCKET, SO_BROADCAST, 1); 
+	if ($setopt == false) { die(socket_strerror(socket_last_error())); } 
+
+	log("Sending broadcast");
+	socket_sendto($broadcast_socket, $broadcast_string, strlen($broadcast_string), 0, '255.255.255.255', LIFX_PORT); 
+	
+	log("Closing broadcast socket");
+	socket_close($broadcast_socket);
+
+	// Make socket for listening for broadcast responses
+	log("Creating listening socket");
+	$listen_socket = socket_create(AF_INET, SOCK_DGRAM, SOL_UDP); 
+	if ($listen_socket == false) { die("SendSock: ".socket_strerror(socket_last_error())); } 
+	if (socket_bind($listen_socket, "0.0.0.0", 56700) === false) {
+	    echo "socket_bind() failed: reason: " . socket_strerror(socket_last_error($listen_socket)) . "\n";
+	}
+
+	socket_set_option($listen_socket,SOL_SOCKET,SO_RCVTIMEO,array("sec"=>1,"usec"=>0));
+
+	// Create gw holder array
+	$gateways = array();
+	
+	// Hiding listen timeout warnings
+	$oldErrorReporting = error_reporting(); // save error reporting level
+	error_reporting($oldErrorReporting ^ E_WARNING); // disable warnings
+	
+	// Loop through an arbitrary number of passes.
+	$pass = 0;
+	while ($pass < BUILD_GW_PASSES) {
+
+		// Create receive variables
+		$from = null;
+		$port = null;
+		$buf = null;
+
+
+		log("Listen pass " . $pass);
+		if (!socket_recvfrom($listen_socket, $buf, 41, 0, $from, $port)) {
+			$pass++;
+			continue;
+		}
+
+
+
+		$pkt = Lifx_Packet::Decode($buf);
+		if ($pkt->type === 0x03) {
+			log("Received a valid 0x03 response from " . $from . ", size of response is " . strlen($buf));
+			log("Payload length: " . strlen($pkt->payload));
+
+			// Extract the port (should be 56700, but just in case...)
+			$port = unpack("V", substr($pkt->payload, 1, 4))[1];
+			log("Gateway " . $pkt->gateway_mac . " port is " . $port);
+
+			$gw = array(	
+				"mac" => $pkt->gateway_mac,
+				"ip" => $from,
+				"port" => $port
+			);
+
+			$gateways[$pkt->gateway_mac] = $gw;
+		}
+
+		$pass++;
+	}
+	error_reporting($oldErrorReporting); // restore error reporting level
+
+	log("Closing listening socket");
+	socket_close($listen_socket);
+
+	return $gateways;
+
+
+	
+	
+}
+
 log("lightd/" . VERSION . " (c) 2014 by sIX / aEGiS <six@aegis-corp.org>");
 
 $patterns = [];
@@ -240,6 +331,17 @@ foreach (parse_ini_file(dirname(__FILE__) . DIRECTORY_SEPARATOR . "patterns.ini"
 }
 
 log("loaded " . count($patterns) . " patterns");
+
+
+
+
+// Get Gateways
+print "Getting Gateways...\n";
+
+
+$gws = build_gateways();
+print_r($gws);
+
 
 $lifx = Nanoserv::New_Connection("tcp://" . LIFX_HOST . ":" . LIFX_PORT, __NAMESPACE__ . "\\Lifx_Client");
 $lifx->Connect();
