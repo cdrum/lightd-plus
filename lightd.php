@@ -21,16 +21,18 @@ You should have received a copy of the GNU Lesser General Public
 License along with this library; if not, write to the Free Software
 Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA 
 
+Enhancements to allow multiple bulb gateways by Chris Drumgoole / cdrum.com
+
 */
 
 namespace Lightd;
 
-const VERSION = "0.9.0";
+const VERSION = "0.9.0 (e)cdrum 1";
 
-const LIFX_HOST = "lifx";
+//const LIFX_HOST = "lifx";
 const LIFX_PORT = 56700;
 
-const BUILD_GW_PASSES = 10;
+const BUILD_GW_PASSES = 5;
 
 const API_LISTEN_ADDR = "0.0.0.0";
 const API_LISTEN_PORT = 5439;
@@ -52,6 +54,7 @@ class Light {
 
 	public $id;
 	public $label;
+	public $gw;
 	public $tags;
 	public $state_ts;
 
@@ -59,9 +62,10 @@ class Light {
 	public $power;
 	public $extra;
 
-	public function __construct($id = null, $label = null) {
+	public function __construct($id = null, $label = null, $gw = null) {
 		$this->id = $id;
 		$this->label = $label;
+		$this->gw = $gw;
 	}
 	
 	static public function Get_All() {
@@ -79,7 +83,7 @@ class Light {
 	
 	static public function Register(self $l) {
 		self::$all[$l->id] = $l;
-		log("new bulb registered: {$l->label}");
+		log("new bulb registered: {$l->label} on gw {$l->gw}");
 	}
 
 	static public function Dump() {
@@ -89,18 +93,18 @@ class Light {
 	}
 
 	public function Set_Power($power = true) {
-		$GLOBALS["lifx"]->Set_Power($power, $this->id);
+		$GLOBALS["lifx"][$this->gw]->Set_Power($power, $this->id);
 	}
 
 	public function Set_Color($rgb, array $extra = []) {
-		$GLOBALS["lifx"]->Set_Color($rgb, $extra, $this->id);
+		$GLOBALS["lifx"][$this->gw]->Set_Color($rgb, $extra, $this->id);
 	}
 
 }
 
 class Lifx_Client extends Lifx_Handler {
 	public function on_Connect() {
-		log("connected to " . LIFX_HOST);
+		log("connected");
 		parent::on_Connect();
 	}
 	public function on_Discover(Lifx_Packet $pkt) {
@@ -114,12 +118,13 @@ class Lifx_Client extends Lifx_Handler {
 		if (isset(Light::$all[$l->id])) {
 			$rl = Light::$all[$l->id];
 		} else {
-			$rl = new Light($l->id, $l->label);
+			$rl = new Light($l->id, $l->label, $l->gw);
 			Light::Register($rl);
 		}
 		$rl->state_ts = time();
 		$rl->id = $l->id;
 		$rl->label = $l->label;
+		$rl->gw = $l->gw;
 		$rl->tags = $l->tags;
 		$rl->rgb = $l->rgb;
 		$rl->power = $l->power;
@@ -150,7 +155,11 @@ class API_Server extends HTTP_Server {
 				if ($args[1]) {
 					Light::Get_By_Name($args[1])->Set_Power($power);
 				} else {
-					$GLOBALS["lifx"]->Set_Power($power);
+					foreach($GLOBALS["lifx"] as $lifx) {
+						if (is_object($lifx)) {
+							$lifx->Set_Power($power);
+						}
+					}
 				}
 				break;
 
@@ -165,7 +174,11 @@ class API_Server extends HTTP_Server {
 				if ($args[1]) {
 					Light::Get_By_Name($args[1])->Set_Color($rgb, [ "hue" => $hue, "saturation" => $saturation, "brightness" => $brightness, "dim" => $dim, "kelvin" => $kelvin]);
 				} else {
-					$GLOBALS["lifx"]->Set_Color($rgb, [ "hue" => $hue, "saturation" => $saturation, "brightness" => $brightness, "kelvin" => $kelvin, "dim" => $dim]);
+					foreach($GLOBALS["lifx"] as $lifx) {
+						if (is_object($lifx)) {
+							$lifx->Set_Color($rgb, [ "hue" => $hue, "saturation" => $saturation, "brightness" => $brightness, "kelvin" => $kelvin, "dim" => $dim]);
+						}
+					}
 				}
 				break;
 
@@ -301,12 +314,9 @@ function build_gateways() {
 
 	return $gateways;
 
-
-	
-	
 }
 
-log("lightd/" . VERSION . " (c) 2014 by sIX / aEGiS <six@aegis-corp.org>");
+log("lightd/" . VERSION . " Original (c) 2014 by sIX / aEGiS <six@aegis-corp.org> | New (c) 2014 Chris Drumgoole / cdrum.com");
 
 $patterns = [];
 $current_pattern = "off";
@@ -340,18 +350,29 @@ print "Getting Gateways...\n";
 
 
 $gws = build_gateways();
-print_r($gws);
+//print_r($gws);
 
+$num_gws = count($gws);
+log("Found " . $num_gws . " gateways to connect to");
 
-$lifx = Nanoserv::New_Connection("tcp://" . LIFX_HOST . ":" . LIFX_PORT, __NAMESPACE__ . "\\Lifx_Client");
-$lifx->Connect();
+// Make array to hold the lifx gateway connections
+$lifx = array($num_gws);
+$gw_count = 0;
 
-Nanoserv::Run(1);
+foreach($gws as $gw) {
+	$lifx[$gw["mac"]] = Nanoserv::New_Connection("tcp://" . $gw["ip"] . ":" . $gw["port"], __NAMESPACE__ . "\\Lifx_Client");
+	$lifx[$gw["mac"]]->Connect();
+	
+	Nanoserv::Run(1);
 
-if (!$lifx->socket->connected) {
-	log("cannot connect");
-	exit(1);
+	if (!$lifx[$gw["mac"]]->socket->connected) {
+		log("cannot connect");
+		exit(1);
+	}
+	
+	$gw_count++;
 }
+
 
 Nanoserv::New_Listener("tcp://" . API_LISTEN_ADDR . ":" . API_LISTEN_PORT, __NAMESPACE__ . "\\API_Server")->Activate();
 log("API server listening on port " . API_LISTEN_PORT);
@@ -361,16 +382,21 @@ $last_refresh_ts = time();
 while (true) {
 	Nanoserv::Run(-1);
 	$t = time();
-	if ($lifx->must_reconnect) {
-		log("lost connection, trying to reconnect ...");
-		sleep(3);
-		$lifx = Nanoserv::New_Connection("tcp://" . LIFX_HOST . ":" . LIFX_PORT, __NAMESPACE__ . "\\Lifx_Client");
-		$lifx->Connect();
-		Nanoserv::Run(-1);
-	} else {
-		if (($last_refresh_ts + 2) < $t) {
-			$lifx->Refresh_States();
-			$last_refresh_ts = $t;
+
+	$gw_count = 0;
+	foreach($gws as $gw) {
+
+		if ($lifx[$gw["mac"]]->must_reconnect) {
+			log("lost connection, trying to reconnect ...");
+			sleep(3);
+			$lifx[$gw["mac"]] = Nanoserv::New_Connection("tcp://" . $gw["ip"] . ":" . $gw["port"], __NAMESPACE__ . "\\Lifx_Client");
+			$lifx[$gw["mac"]]->Connect();
+			Nanoserv::Run(-1);
+		} else {
+			if (($last_refresh_ts + 2) < $t) {
+				$lifx[$gw["mac"]]->Refresh_States();
+				$last_refresh_ts = $t;
+			}
 		}
 	}
 }

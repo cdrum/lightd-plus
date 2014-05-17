@@ -20,6 +20,8 @@ You should have received a copy of the GNU Lesser General Public
 License along with this library; if not, write to the Free Software
 Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA 
 
+Enhancements to allow multiple bulb gateways by Chris Drumgoole / cdrum.com
+
 */
 
 namespace Lightd\Drivers\Lifx;
@@ -104,6 +106,7 @@ abstract class Handler extends Connection_Handler {
 					"kelvin" => $tmp["kelvin"],
 				];
 				$l->id = $pkt->target_mac;
+				$l->gw = $pkt->gateway_mac;
 				$l->power = $tmp["power"] == 0xffff;
 				$l->label = trim($tmp["label"]);
 				$l->tags = $tmp["tags1"] + $tmp["tags2"];
@@ -115,11 +118,15 @@ abstract class Handler extends Connection_Handler {
 	}
 
 	public function on_Discover(Packet $pkt) {
+//print "Discovering and setting gateway mac\n";
+//print_r($pkt);
 		$this->gateway_mac = $pkt->gateway_mac;
 		$this->Refresh_States();
 	}
 	
 	public function Send(Packet $pkt) {
+//print "Sending packet";
+//print_r($pkt);
 		$pkt->gateway_mac = $this->gateway_mac;
 		$this->Write($pkt->Encode());
 	}
