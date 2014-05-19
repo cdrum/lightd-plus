@@ -27,7 +27,7 @@ Enhancements to allow multiple bulb gateways by Chris Drumgoole / cdrum.com
 
 namespace Lightd;
 
-const VERSION = "0.9.0 (e)cdrum 1";
+const VERSION = "0.9.0 (e)cdrum";
 
 //const LIFX_HOST = "lifx";
 const LIFX_PORT = 56700;
@@ -316,7 +316,7 @@ function build_gateways() {
 
 }
 
-log("lightd/" . VERSION . " Original (c) 2014 by sIX / aEGiS <six@aegis-corp.org> | New (c) 2014 Chris Drumgoole / cdrum.com");
+log("lightd-plus/" . VERSION . " Original (c) 2014 by sIX / aEGiS <six@aegis-corp.org> | New (c) 2014 Chris Drumgoole / cdrum.com");
 
 $patterns = [];
 $current_pattern = "off";

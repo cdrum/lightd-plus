@@ -1,7 +1,7 @@
-lightd
-======
+lightd-plus
+===========
 
-lightd is a simple HTTP gateway for the lifx binary protocol
+lightd-plus is a simple HTTP gateway for the lifx binary protocol
 This update eliminates the need for a fixed IP/known list of gateways. This script will now 
 monitor the entire address space for gateways and control bulbs from all gateways.
 
@@ -18,7 +18,7 @@ if everything is set up correctly, you should see something like this when you
 run lightd from the command line :
 
 ```
-20140123:204248 lightd/0.9.0 (c) 2014 by sIX / aEGiS
+20140123:204248 lightd-plus/0.9.0 (e)cdrum - Original (c) 2014 by sIX / aEGiS <six@aegis-corp.org> | New (c) 2014 Chris Drumgoole / cdrum.com
 20140123:204248 loaded 5 patterns
 20140123:204248 connected to lifx
 20140123:204248 API server listening on port 5439
