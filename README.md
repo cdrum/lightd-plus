@@ -5,6 +5,8 @@ lightd-plus is a simple HTTP gateway for the lifx binary protocol
 This update eliminates the need for a fixed IP/known list of gateways. This script will now 
 monitor the entire address space for gateways and control bulbs from all gateways.
 
+Forked from https://github.com/Human2000/lightd which was forked from https://github.com/six0r/lightd
+
 #### Requirements
 
 - command line PHP binary (>= 5.4)
