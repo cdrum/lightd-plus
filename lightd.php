@@ -299,7 +299,8 @@ function build_gateways() {
 			$gw = array(	
 				"mac" => $pkt->gateway_mac,
 				"ip" => $from,
-				"port" => $port
+				"port" => $port,
+				"last_refresh_ts" => ""		// Add refresh time as we'll use it later 
 			);
 
 			$gateways[$pkt->gateway_mac] = $gw;
@@ -357,7 +358,6 @@ log("Found " . $num_gws . " gateways to connect to");
 
 // Make array to hold the lifx gateway connections
 $lifx = array($num_gws);
-$gw_count = 0;
 
 foreach($gws as $gw) {
 	$lifx[$gw["mac"]] = Nanoserv::New_Connection("tcp://" . $gw["ip"] . ":" . $gw["port"], __NAMESPACE__ . "\\Lifx_Client");
@@ -370,22 +370,20 @@ foreach($gws as $gw) {
 		exit(1);
 	}
 	
-	$gw_count++;
+	// Add refresh time as we'll use it later 
+	$gw["last_refresh_ts"] = time();
 }
 
 
 Nanoserv::New_Listener("tcp://" . API_LISTEN_ADDR . ":" . API_LISTEN_PORT, __NAMESPACE__ . "\\API_Server")->Activate();
 log("API server listening on port " . API_LISTEN_PORT);
 
-$last_refresh_ts = time();
-
 while (true) {
 	Nanoserv::Run(-1);
 	$t = time();
 
-	$gw_count = 0;
-	foreach($gws as $gw) {
-
+	foreach($gws as &$gw) {
+		
 		if ($lifx[$gw["mac"]]->must_reconnect) {
 			log("lost connection, trying to reconnect ...");
 			sleep(3);
@@ -393,9 +391,10 @@ while (true) {
 			$lifx[$gw["mac"]]->Connect();
 			Nanoserv::Run(-1);
 		} else {
-			if (($last_refresh_ts + 2) < $t) {
+			if (($gw["last_refresh_ts"] + 2) < $t) {
+				log("Refreshing state of gw " . $gw["mac"]);
 				$lifx[$gw["mac"]]->Refresh_States();
-				$last_refresh_ts = $t;
+				$gw["last_refresh_ts"] = $t;
 			}
 		}
 	}
