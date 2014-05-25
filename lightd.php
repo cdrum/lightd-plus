@@ -27,7 +27,7 @@ Enhancements to allow multiple bulb gateways by Chris Drumgoole / cdrum.com
 
 namespace Lightd;
 
-const VERSION = "0.9.0 (e)cdrum";
+const VERSION = "0.9.1 (e)cdrum";
 
 //const LIFX_HOST = "lifx";
 const LIFX_PORT = 56700;
@@ -230,7 +230,7 @@ function log($msg) {
 	echo date("Ymd:His") . " " . $msg . "\n";
 }
 
-function build_gateways() {
+function build_gateways(&$gateways = null) {
 	
 	log("Getting Gateways");
 	
@@ -278,14 +278,11 @@ function build_gateways() {
 		$port = null;
 		$buf = null;
 
-
 		log("Listen pass " . $pass);
 		if (!socket_recvfrom($listen_socket, $buf, 41, 0, $from, $port)) {
 			$pass++;
 			continue;
 		}
-
-
 
 		$pkt = Lifx_Packet::Decode($buf);
 		if ($pkt->type === 0x03) {
@@ -357,7 +354,8 @@ $num_gws = count($gws);
 log("Found " . $num_gws . " gateways to connect to");
 
 // Make array to hold the lifx gateway connections
-$lifx = array($num_gws);
+//$lifx = array($num_gws);
+$lifx = array();
 
 foreach($gws as $gw) {
 	$lifx[$gw["mac"]] = Nanoserv::New_Connection("tcp://" . $gw["ip"] . ":" . $gw["port"], __NAMESPACE__ . "\\Lifx_Client");
@@ -382,6 +380,37 @@ while (true) {
 	Nanoserv::Run(-1);
 	$t = time();
 
+	log("looking for more gateways");
+	$gws = build_gateways($gws);
+	
+	// Check if there are any new gateways or if we need to remove any
+	foreach($gws as &$gw) {
+		// First, check if we have any new ones
+		if (!array_key_exists($gw["mac"], $lifx)) {
+			
+			log("Found a new gw bulb at " . $gw["mac"]);
+			
+			$lifx[$gw["mac"]] = Nanoserv::New_Connection("tcp://" . $gw["ip"] . ":" . $gw["port"], __NAMESPACE__ . "\\Lifx_Client");
+			$lifx[$gw["mac"]]->Connect();
+
+			Nanoserv::Run(1);
+
+			if (!$lifx[$gw["mac"]]->socket->connected) {
+				log("cannot connect to new gw " . $gw["mac"]);
+				unset($lifx[$gw["mac"]]);
+			}
+			
+			// Add refresh time as we'll use it later 
+			$gw["last_refresh_ts"] = time();
+		}
+		
+
+	}
+	
+	//TODO: I was here, just added this and it fails. I think it's because I'm not adding it to the array properly
+	//TODO: What I think I need to do is separate finding GWs from managing and connecting to them. Then when a new one is found, call the connect
+	//TODO: When one isn't found, then either try reconnecting, or remove it from our arrays.
+
 	foreach($gws as &$gw) {
 		
 		if ($lifx[$gw["mac"]]->must_reconnect) {
@@ -398,6 +427,8 @@ while (true) {
 			}
 		}
 	}
+	
+	sleep(2);
 }
 
 ?>
