@@ -48,6 +48,105 @@ use Lightd\Drivers\Lifx\Packet as Lifx_Packet;
 use Lightd\Drivers\Lifx\Handler as Lifx_Handler;
 use Exception;
 
+class LIFX_Gateway {
+	
+	private $mac_address;
+	private $ip_address;
+	private $listen_port;
+	private $last_refresh_ts;
+	private $socket_connection;
+	
+	public function __construct($mac_address = null, $ip_address = null, $listen_port = null, $last_refresh_ts = null) {
+		log("construct LIFX_Gateway");
+		$this->mac_address = $mac_address;
+		$this->ip_address = $ip_address;
+		$this->listen_port = $listen_port;
+		$this->last_refresh_ts = $last_refresh_ts;
+		
+		// Made a concious decision not to do the socket connection on constructor
+	}
+	
+	public function getMacAddress() {
+		return $this->mac_address;
+	}
+	
+	public function establish_connection() {
+		print_r($this);
+		$this->socket_connection = Nanoserv::New_Connection("tcp://" . $this->ip_address . ":" . $this->listen_port, __NAMESPACE__ . "\\Lifx_Client");
+		$this->socket_connection->Connect();
+		Nanoserv::Run(-1);
+		sleep(1);
+		
+		
+		// Check to see if the socket connection is valid
+		if (!$this->socket_connection->socket->connected) {
+			log("Shoot! Cannot connect to the Gateway. Not sure how to recover. :(");
+			return false;
+		} else {
+			log("Connected to Gateway " . $this->mac_address);
+			return true;
+		}
+	}
+}
+
+class LIFX_Gateways {
+	
+	private $gateways = array();
+	
+	public function addGateway($gateway) {
+		// First check if we are getting the correct object type
+		if (!is_object($gateway)) {
+			// Error!
+			log("Error on adding LIFX Gateway - passed variable is not even an object!");
+			return false;
+		}
+		
+		if (!is_a($gateway, "Lightd\LIFX_Gateway")) {
+			// Error!
+			log("Error on adding LIFX Gateway - passed object not valid type. It is " . get_class($gateway));
+			return false;
+		} else {
+			log("Adding new gateway to Gateways object - " . $gateway->getMacAddress());
+			$this->gateways[$gateway->getMacAddress()] = $gateway;
+			
+			// Now, connect!
+			if(!$this->gateways[$gateway->getMacAddress()]->establish_connection()) {
+				// UNable to connect so let's remove it
+				log("Couldn't connect, so removing gateway");
+				unset($this->gateways[$gateway->getMacAddress()]);
+			} 
+			return true;
+		}
+	}
+	
+	protected function getGateways() {
+		return $this->gateways;
+	}
+	
+	public function removeGatewayByMac($gateway_mac) {
+		// First, let's see if we even have this gateway
+		if (array_key_exists($gateway_mac, $this->gateways)) {
+			unset($this->gateways[$gateway_mac]);
+			log("Successfully removed gateway");
+			return true;
+		} else {
+			log("Hmm.. tried to remove a gateway that didnt exist. This seems like a problem to me...");
+			exit(1);
+		}
+	}
+	
+	// Returns gateway object if exists by mac address of gateway
+	public function getGatewayByMac($gateway_mac) {
+		if (array_key_exists($gateway_mac, $this->gateways)) {
+			log("Checking, and found an existing gateway");
+			return $this->gateways[$gateway_mac];
+		} else {
+			return null;
+		}
+	}
+	
+}
+
 class Light {
 	
 	static public $all = [];
@@ -104,11 +203,9 @@ class Light {
 
 class Lifx_Client extends Lifx_Handler {
 	public function on_Connect() {
-		log("connected");
 		parent::on_Connect();
 	}
 	public function on_Discover(Lifx_Packet $pkt) {
-		log("found gateway bulb at {$pkt->gateway_mac}");
 		parent::on_Discover($pkt);
 	}
 	public function on_Packet(Lifx_Packet $pkt) {
@@ -230,6 +327,84 @@ function log($msg) {
 	echo date("Ymd:His") . " " . $msg . "\n";
 }
 
+/* Function to get list of active gateways */
+function find_gateways() {
+	log("Looking for LIFX Gateways");
+	
+	// Create packet for requesting gateways
+	$packet = new Lifx_Packet(0x02);
+	$broadcast_string = $packet->Encode();
+
+	// Make socket for broadcasting request on network
+	$broadcast_socket = socket_create(AF_INET, SOCK_DGRAM, SOL_UDP); 
+	if ($broadcast_socket == false) { die("SendSock: ".socket_strerror(socket_last_error())); } 
+
+	$setopt = socket_set_option($broadcast_socket, SOL_SOCKET, SO_BROADCAST, 1); 
+	if ($setopt == false) { die(socket_strerror(socket_last_error())); } 
+
+	log("Sending broadcast 0x02");
+	socket_sendto($broadcast_socket, $broadcast_string, strlen($broadcast_string), 0, '255.255.255.255', LIFX_PORT); 
+	
+	socket_close($broadcast_socket);
+
+	// Make socket for listening for broadcast responses
+	$listen_socket = socket_create(AF_INET, SOCK_DGRAM, SOL_UDP); 
+	if ($listen_socket == false) { die("SendSock: ".socket_strerror(socket_last_error())); } 
+	if (socket_bind($listen_socket, "0.0.0.0", 56700) === false) {
+	    echo "socket_bind() failed: reason: " . socket_strerror(socket_last_error($listen_socket)) . "\n";
+	}
+
+	socket_set_option($listen_socket,SOL_SOCKET,SO_RCVTIMEO,array("sec"=>1,"usec"=>0));
+
+	// Create gw holder array
+	$found_gateways = array();
+	
+	// Hiding listen timeout warnings
+	$oldErrorReporting = error_reporting(); // save error reporting level
+	error_reporting($oldErrorReporting ^ E_WARNING); // disable warnings
+	
+	// Loop through an arbitrary number of passes.
+	$pass = 0;
+	log("Listening for Gateways to respond to broadcast");
+	while ($pass < BUILD_GW_PASSES) {
+
+		// Create receive variables
+		$from = null;
+		$port = null;
+		$buf = null;
+
+		if (!socket_recvfrom($listen_socket, $buf, 41, 0, $from, $port)) {
+			$pass++;
+			continue;
+		}
+
+		$pkt = Lifx_Packet::Decode($buf);
+		if ($pkt->type === 0x03) {
+			log("Received a valid 0x03 response from " . $from . ", size of response is " . strlen($buf));
+
+			// Extract the port (should be 56700, but just in case...)
+			$port = unpack("V", substr($pkt->payload, 1, 4))[1];
+			log("Gateway " . $pkt->gateway_mac . " port is " . $port);
+
+			$gw = array(	
+				"mac_address" => $pkt->gateway_mac,
+				"ip_address" => $from,
+				"listen_port" => $port,
+				"last_refresh_ts" => ""		// Add refresh time as we'll use it later 
+			);
+
+			$found_gateways[$pkt->gateway_mac] = $gw;
+		}
+
+		$pass++;
+	}
+	error_reporting($oldErrorReporting); // restore error reporting level
+
+	socket_close($listen_socket);
+
+	return $found_gateways;
+}
+/*
 function build_gateways(&$gateways = null) {
 	
 	log("Getting Gateways");
@@ -313,7 +488,7 @@ function build_gateways(&$gateways = null) {
 	return $gateways;
 
 }
-
+*/
 log("lightd-plus/" . VERSION . " Original (c) 2014 by sIX / aEGiS <six@aegis-corp.org> | New (c) 2014 Chris Drumgoole / cdrum.com");
 
 $patterns = [];
@@ -340,13 +515,34 @@ foreach (parse_ini_file(dirname(__FILE__) . DIRECTORY_SEPARATOR . "patterns.ini"
 
 log("loaded " . count($patterns) . " patterns");
 
-
+/* Running vars */
+$lifx_gateways = new LIFX_Gateways;
 
 
 // Get Gateways
 print "Getting Gateways...\n";
 
+// Get initial list of gateways
+$gws = find_gateways();
 
+// Loop through found gateways and add to object
+foreach ($gws as $gw) {
+	if ($lifx_gateways->getGatewayByMac($gw["mac_address"])) {
+		// The gateway exists already so in this case, we move on
+		continue;
+	} else {
+		// The gateway doesn't exist, so let's add it
+		$tmp_gw = new LIFX_Gateway($gw["mac_address"], $gw["ip_address"], $gw["listen_port"], time());
+		$lifx_gateways->addGateway($tmp_gw);
+
+		unset($tmp_gw); // clear our temporary object from memory as we added it to our object of gateways
+	}
+}
+
+//TODO: now need to put this into a loop and check the timeout var
+
+
+/*
 $gws = build_gateways();
 //print_r($gws);
 
@@ -430,5 +626,5 @@ while (true) {
 	
 	sleep(2);
 }
-
+*/
 ?>
