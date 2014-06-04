@@ -70,6 +70,19 @@ class LIFX_Gateway {
 		return $this->mac_address;
 	}
 	
+	public function getLastRefreshTS() {
+		return $this->last_refresh_ts;
+	}
+
+	public function setLastRefreshTS($t = null) {
+		if (!$t) {
+			$t = time();
+		}
+		
+		$this->last_refresh_ts = $t;
+		return true;
+	}
+	
 	public function establish_connection() {
 		print_r($this);
 		$this->socket_connection = Nanoserv::New_Connection("tcp://" . $this->ip_address . ":" . $this->listen_port, __NAMESPACE__ . "\\Lifx_Client");
@@ -87,6 +100,21 @@ class LIFX_Gateway {
 			return true;
 		}
 	}
+	
+	public function maintainConnection($t) {
+		if ($this->socket_connection->must_reconnect) {
+			log("lost connection, trying to reconnect ...");
+			sleep(3);
+			$this->establish_connection();
+		} else {
+			if (($this->getLastRefreshTS() + 2) < $t) {
+				log("Refreshing state of gw " . $this->mac_address);
+				$this->socket_connection->Refresh_States();
+				$this->setLastRefreshTS($t);
+			}
+		}
+	}
+	
 }
 
 class LIFX_Gateways {
@@ -119,7 +147,7 @@ class LIFX_Gateways {
 		}
 	}
 	
-	protected function getGateways() {
+	public function getGateways() {
 		return $this->gateways;
 	}
 	
@@ -144,6 +172,8 @@ class LIFX_Gateways {
 			return null;
 		}
 	}
+	
+
 	
 }
 
@@ -519,24 +549,42 @@ log("loaded " . count($patterns) . " patterns");
 $lifx_gateways = new LIFX_Gateways;
 
 
-// Get Gateways
+// Enter loop and manage
 print "Getting Gateways...\n";
 
-// Get initial list of gateways
-$gws = find_gateways();
+while (true) {
+	Nanoserv::Run(-1);
+	$t = time();
+	
+	
+	// Get initial list of gateways
+	$gws = find_gateways();
 
-// Loop through found gateways and add to object
-foreach ($gws as $gw) {
-	if ($lifx_gateways->getGatewayByMac($gw["mac_address"])) {
-		// The gateway exists already so in this case, we move on
-		continue;
-	} else {
-		// The gateway doesn't exist, so let's add it
-		$tmp_gw = new LIFX_Gateway($gw["mac_address"], $gw["ip_address"], $gw["listen_port"], time());
-		$lifx_gateways->addGateway($tmp_gw);
+	// Loop through found gateways and add to object
+	foreach ($gws as $gw) {
+		
+		if ($lifx_gateways->getGatewayByMac($gw["mac_address"])) {
+			// The gateway exists already
+			
+			// Update the connection, if needed
+			$lifx_gateways->getGatewayByMac($gw["mac_address"])->maintainConnection($t);
+			continue;
+		} else {
+			// The gateway doesn't exist, so let's add it
+			$tmp_gw = new LIFX_Gateway($gw["mac_address"], $gw["ip_address"], $gw["listen_port"], time());
+			$lifx_gateways->addGateway($tmp_gw);
 
-		unset($tmp_gw); // clear our temporary object from memory as we added it to our object of gateways
+			unset($tmp_gw); // clear our temporary object from memory as we added it to our object of gateways
+		}
 	}
+	
+	// Now let's see if we need to remove any gateways, such as if an existing gw was turned off, or absorved by another
+	log("any differences?");
+//	print_r($gws);
+//	print_r($lifx_gateways->getGateways());
+	print_r(array_diff_key($lifx_gateways->getGateways(), $gws));
+//TODO: 1. remove missing gw
+//TODO: 2. check if IP is the same (update if not)
 }
 
 //TODO: now need to put this into a loop and check the timeout var
