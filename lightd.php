@@ -163,6 +163,25 @@ class LIFX_Gateways {
 		}
 	}
 	
+	public function removeGatewaysByMacInArray($gateway_macs = null) {
+		if (!$gateway_macs) {
+			return false;
+		}
+		
+		$removed_count = 0;
+		
+		foreach ($gateway_macs as $gw_mac) {
+			$result = $this->removeGatewayByMac($gw_mac);
+			
+			if ($result) {
+				$removed_count++;
+			}
+		}
+		
+		return $removed_count;
+		
+	}
+	
 	// Returns gateway object if exists by mac address of gateway
 	public function getGatewayByMac($gateway_mac) {
 		if (array_key_exists($gateway_mac, $this->gateways)) {
@@ -545,9 +564,12 @@ foreach (parse_ini_file(dirname(__FILE__) . DIRECTORY_SEPARATOR . "patterns.ini"
 
 log("loaded " . count($patterns) . " patterns");
 
+// Run the API listener
+Nanoserv::New_Listener("tcp://" . API_LISTEN_ADDR . ":" . API_LISTEN_PORT, __NAMESPACE__ . "\\API_Server")->Activate();
+log("API server listening on port " . API_LISTEN_PORT);
+
 /* Running vars */
 $lifx_gateways = new LIFX_Gateways;
-
 
 // Enter loop and manage
 print "Getting Gateways...\n";
@@ -579,10 +601,20 @@ while (true) {
 	}
 	
 	// Now let's see if we need to remove any gateways, such as if an existing gw was turned off, or absorved by another
-	log("any differences?");
+	log("Looking for gateways that have gone away.");
 //	print_r($gws);
 //	print_r($lifx_gateways->getGateways());
-	print_r(array_diff_key($lifx_gateways->getGateways(), $gws));
+	$missing_gws = array_keys(array_diff_key($lifx_gateways->getGateways(), $gws));
+	print_r($missing_gws);
+	if ($missing_gws) {
+		log("Found " . count($missing_gws) . " gateways that have gone away.");
+		
+		// Now let's remove these from our object store
+		$removed_gw_count = $lifx_gateways->removeGatewaysByMacInArray($missing_gws);
+		
+		log ("Removed " . $removed_gw_count . " missing gateways.");
+	}
+	
 //TODO: 1. remove missing gw
 //TODO: 2. check if IP is the same (update if not)
 }
