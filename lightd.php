@@ -5,7 +5,8 @@
 
 lightd - a simple HTTP gateway for the lifx binary protocol
 
-Copyright (C) 2014 Vincent Negrier aka. sIX <six at aegis-corp.org>
+Original Copyright (C) 2014 Vincent Negrier aka. sIX <six at aegis-corp.org>
+New code Copyright (C) 2014 Chris Drumgoole
 
 This library is free software; you can redistribute it and/or
 modify it under the terms of the GNU Lesser General Public
@@ -23,11 +24,14 @@ Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 
 Enhancements to allow multiple bulb gateways by Chris Drumgoole / cdrum.com
 
+Packet Descriptions 1: https://github.com/magicmonkey/lifxjs/blob/master/Protocol.md
+Packet Descriptions 2: https://github.com/magicmonkey/lifxjs/blob/master/wireshark/lifx.lua
+
 */
 
 namespace Lightd;
 
-const VERSION = "0.9.1 (e)cdrum";
+const VERSION = "0.9.2 (e)cdrum";
 
 //const LIFX_HOST = "lifx";
 const LIFX_PORT = 56700;
@@ -36,6 +40,14 @@ const BUILD_GW_PASSES = 5;
 
 const API_LISTEN_ADDR = "0.0.0.0";
 const API_LISTEN_PORT = 5439;
+
+abstract class LogLevel
+{
+    const DEBUG = 0;
+    const INFO = 1;
+}
+
+const LOG_LEVEL = LogLevel::DEBUG;
 
 require_once "nanoserv/nanoserv.php";
 require_once "nanoserv/handlers/HTTP/Server.php";
@@ -84,7 +96,6 @@ class LIFX_Gateway {
 	}
 	
 	public function establish_connection() {
-		print_r($this);
 		$this->socket_connection = Nanoserv::New_Connection("tcp://" . $this->ip_address . ":" . $this->listen_port, __NAMESPACE__ . "\\Lifx_Client");
 		$this->socket_connection->Connect();
 		Nanoserv::Run(-1);
@@ -196,9 +207,12 @@ class LIFX_Gateways {
 	
 }
 
+/*
+Class manages a single bulb
+*/
 class Light {
 	
-	static public $all = [];
+	static public $all = []; // This is the array that stores all the bulbs
 
 	public $id;
 	public $label;
@@ -231,7 +245,7 @@ class Light {
 	
 	static public function Register(self $l) {
 		self::$all[$l->id] = $l;
-		log("new bulb registered: {$l->label} on gw {$l->gw}");
+		log("new bulb registered: id '{$l->id}', label '{$l->label}' on gw '{$l->gw}'");
 	}
 
 	static public function Dump() {
@@ -241,6 +255,7 @@ class Light {
 	}
 
 	public function Set_Power($power = true) {
+		//TODO: I may need to alter this...
 		$GLOBALS["lifx"][$this->gw]->Set_Power($power, $this->id);
 	}
 
@@ -250,23 +265,36 @@ class Light {
 
 }
 
+
+/*
+Class manages the lights in the network
+*/
+class Lights {
+	private $bulbs = [];
+}
+
 class Lifx_Client extends Lifx_Handler {
 	public function on_Connect() {
 		parent::on_Connect();
 	}
 	public function on_Discover(Lifx_Packet $pkt) {
+
 		parent::on_Discover($pkt);
 	}
 	public function on_Packet(Lifx_Packet $pkt) {
 		// var_dump($pkt);
 	}
 	public function on_Light_State(Light $l) {
+log("bulb A");
 		if (isset(Light::$all[$l->id])) {
+log("bulb B");
 			$rl = Light::$all[$l->id];
 		} else {
+log("bulb C");
 			$rl = new Light($l->id, $l->label, $l->gw);
 			Light::Register($rl);
 		}
+log("bulb D");
 		$rl->state_ts = time();
 		$rl->id = $l->id;
 		$rl->label = $l->label;
@@ -372,8 +400,21 @@ class API_Server extends HTTP_Server {
 	}
 }
 
-function log($msg) {
-	echo date("Ymd:His") . " " . $msg . "\n";
+function log($msg, $level = LogLevel::DEBUG) {
+
+	if ($level >= LOG_LEVEL) {
+		switch ($level) {
+			case LogLevel::INFO:
+				print (date("Ymd:His") . " - INFO  - " . $msg . "\n");
+				break;
+			case LogLevel::DEBUG:
+			default:
+				print (date("Ymd:His") . " - DEBUG - " . $msg . "\n");
+				break;
+		}
+	}
+	
+	return;
 }
 
 /* Function to get list of active gateways */
@@ -453,92 +494,8 @@ function find_gateways() {
 
 	return $found_gateways;
 }
-/*
-function build_gateways(&$gateways = null) {
-	
-	log("Getting Gateways");
-	
-	// Create packet for requesting gateways
-	$packet = new Lifx_Packet(0x02);
-	$broadcast_string = $packet->Encode();
 
-	// Make socket for broadcasting request on network
-	log("Creating broadcast socket");
-	$broadcast_socket = socket_create(AF_INET, SOCK_DGRAM, SOL_UDP); 
-	if ($broadcast_socket == false) { die("SendSock: ".socket_strerror(socket_last_error())); } 
-
-	$setopt = socket_set_option($broadcast_socket, SOL_SOCKET, SO_BROADCAST, 1); 
-	if ($setopt == false) { die(socket_strerror(socket_last_error())); } 
-
-	log("Sending broadcast");
-	socket_sendto($broadcast_socket, $broadcast_string, strlen($broadcast_string), 0, '255.255.255.255', LIFX_PORT); 
-	
-	log("Closing broadcast socket");
-	socket_close($broadcast_socket);
-
-	// Make socket for listening for broadcast responses
-	log("Creating listening socket");
-	$listen_socket = socket_create(AF_INET, SOCK_DGRAM, SOL_UDP); 
-	if ($listen_socket == false) { die("SendSock: ".socket_strerror(socket_last_error())); } 
-	if (socket_bind($listen_socket, "0.0.0.0", 56700) === false) {
-	    echo "socket_bind() failed: reason: " . socket_strerror(socket_last_error($listen_socket)) . "\n";
-	}
-
-	socket_set_option($listen_socket,SOL_SOCKET,SO_RCVTIMEO,array("sec"=>1,"usec"=>0));
-
-	// Create gw holder array
-	$gateways = array();
-	
-	// Hiding listen timeout warnings
-	$oldErrorReporting = error_reporting(); // save error reporting level
-	error_reporting($oldErrorReporting ^ E_WARNING); // disable warnings
-	
-	// Loop through an arbitrary number of passes.
-	$pass = 0;
-	while ($pass < BUILD_GW_PASSES) {
-
-		// Create receive variables
-		$from = null;
-		$port = null;
-		$buf = null;
-
-		log("Listen pass " . $pass);
-		if (!socket_recvfrom($listen_socket, $buf, 41, 0, $from, $port)) {
-			$pass++;
-			continue;
-		}
-
-		$pkt = Lifx_Packet::Decode($buf);
-		if ($pkt->type === 0x03) {
-			log("Received a valid 0x03 response from " . $from . ", size of response is " . strlen($buf));
-			log("Payload length: " . strlen($pkt->payload));
-
-			// Extract the port (should be 56700, but just in case...)
-			$port = unpack("V", substr($pkt->payload, 1, 4))[1];
-			log("Gateway " . $pkt->gateway_mac . " port is " . $port);
-
-			$gw = array(	
-				"mac" => $pkt->gateway_mac,
-				"ip" => $from,
-				"port" => $port,
-				"last_refresh_ts" => ""		// Add refresh time as we'll use it later 
-			);
-
-			$gateways[$pkt->gateway_mac] = $gw;
-		}
-
-		$pass++;
-	}
-	error_reporting($oldErrorReporting); // restore error reporting level
-
-	log("Closing listening socket");
-	socket_close($listen_socket);
-
-	return $gateways;
-
-}
-*/
-log("lightd-plus/" . VERSION . " Original (c) 2014 by sIX / aEGiS <six@aegis-corp.org> | New (c) 2014 Chris Drumgoole / cdrum.com");
+log("lightd-plus/" . VERSION . " Original (c) 2014 by sIX / aEGiS <six@aegis-corp.org> | New (c) 2014 Chris Drumgoole / cdrum.com", LogLevel::INFO);
 
 $patterns = [];
 $current_pattern = "off";
@@ -566,13 +523,13 @@ log("loaded " . count($patterns) . " patterns");
 
 // Run the API listener
 Nanoserv::New_Listener("tcp://" . API_LISTEN_ADDR . ":" . API_LISTEN_PORT, __NAMESPACE__ . "\\API_Server")->Activate();
-log("API server listening on port " . API_LISTEN_PORT);
+log("API server listening on port " . API_LISTEN_PORT, LogLevel::INFO);
 
 /* Running vars */
 $lifx_gateways = new LIFX_Gateways;
 
 // Enter loop and manage
-print "Getting Gateways...\n";
+log("Looking for Gateways...", LogLevel::INFO);
 
 while (true) {
 	Nanoserv::Run(-1);
@@ -580,7 +537,7 @@ while (true) {
 	
 	
 	// Get initial list of gateways
-	$gws = find_gateways();
+	$gws = find_gateways(); // TODO: put this in the class
 
 	// Loop through found gateways and add to object
 	foreach ($gws as $gw) {
@@ -594,7 +551,11 @@ while (true) {
 		} else {
 			// The gateway doesn't exist, so let's add it
 			$tmp_gw = new LIFX_Gateway($gw["mac_address"], $gw["ip_address"], $gw["listen_port"], time());
-			$lifx_gateways->addGateway($tmp_gw);
+			if($lifx_gateways->addGateway($tmp_gw)) {
+				log("Added new gateway " . $gw["mac_address"], LogLevel::INFO);
+			} else {
+				log("Error trying to ad new gateway " . $gw["mac_address"], LogLevel::INFO);
+			}
 
 			unset($tmp_gw); // clear our temporary object from memory as we added it to our object of gateways
 		}
@@ -605,7 +566,7 @@ while (true) {
 //	print_r($gws);
 //	print_r($lifx_gateways->getGateways());
 	$missing_gws = array_keys(array_diff_key($lifx_gateways->getGateways(), $gws));
-	print_r($missing_gws);
+	log("Result of missing gateway check: " . print_r($missing_gws, true), LogLevel::DEBUG);
 	if ($missing_gws) {
 		log("Found " . count($missing_gws) . " gateways that have gone away.");
 		
@@ -705,6 +666,92 @@ while (true) {
 	}
 	
 	sleep(2);
+}
+*/
+
+/*
+function build_gateways(&$gateways = null) {
+	
+	log("Getting Gateways");
+	
+	// Create packet for requesting gateways
+	$packet = new Lifx_Packet(0x02);
+	$broadcast_string = $packet->Encode();
+
+	// Make socket for broadcasting request on network
+	log("Creating broadcast socket");
+	$broadcast_socket = socket_create(AF_INET, SOCK_DGRAM, SOL_UDP); 
+	if ($broadcast_socket == false) { die("SendSock: ".socket_strerror(socket_last_error())); } 
+
+	$setopt = socket_set_option($broadcast_socket, SOL_SOCKET, SO_BROADCAST, 1); 
+	if ($setopt == false) { die(socket_strerror(socket_last_error())); } 
+
+	log("Sending broadcast");
+	socket_sendto($broadcast_socket, $broadcast_string, strlen($broadcast_string), 0, '255.255.255.255', LIFX_PORT); 
+	
+	log("Closing broadcast socket");
+	socket_close($broadcast_socket);
+
+	// Make socket for listening for broadcast responses
+	log("Creating listening socket");
+	$listen_socket = socket_create(AF_INET, SOCK_DGRAM, SOL_UDP); 
+	if ($listen_socket == false) { die("SendSock: ".socket_strerror(socket_last_error())); } 
+	if (socket_bind($listen_socket, "0.0.0.0", 56700) === false) {
+	    echo "socket_bind() failed: reason: " . socket_strerror(socket_last_error($listen_socket)) . "\n";
+	}
+
+	socket_set_option($listen_socket,SOL_SOCKET,SO_RCVTIMEO,array("sec"=>1,"usec"=>0));
+
+	// Create gw holder array
+	$gateways = array();
+	
+	// Hiding listen timeout warnings
+	$oldErrorReporting = error_reporting(); // save error reporting level
+	error_reporting($oldErrorReporting ^ E_WARNING); // disable warnings
+	
+	// Loop through an arbitrary number of passes.
+	$pass = 0;
+	while ($pass < BUILD_GW_PASSES) {
+
+		// Create receive variables
+		$from = null;
+		$port = null;
+		$buf = null;
+
+		log("Listen pass " . $pass);
+		if (!socket_recvfrom($listen_socket, $buf, 41, 0, $from, $port)) {
+			$pass++;
+			continue;
+		}
+
+		$pkt = Lifx_Packet::Decode($buf);
+		if ($pkt->type === 0x03) {
+			log("Received a valid 0x03 response from " . $from . ", size of response is " . strlen($buf));
+			log("Payload length: " . strlen($pkt->payload));
+
+			// Extract the port (should be 56700, but just in case...)
+			$port = unpack("V", substr($pkt->payload, 1, 4))[1];
+			log("Gateway " . $pkt->gateway_mac . " port is " . $port);
+
+			$gw = array(	
+				"mac" => $pkt->gateway_mac,
+				"ip" => $from,
+				"port" => $port,
+				"last_refresh_ts" => ""		// Add refresh time as we'll use it later 
+			);
+
+			$gateways[$pkt->gateway_mac] = $gw;
+		}
+
+		$pass++;
+	}
+	error_reporting($oldErrorReporting); // restore error reporting level
+
+	log("Closing listening socket");
+	socket_close($listen_socket);
+
+	return $gateways;
+
 }
 */
 ?>
