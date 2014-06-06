@@ -297,7 +297,7 @@ class Lights {
 	}
 	
 	public function getAllBulbs() {
-		log("Returning dump of all bulb information: " . print_r(array_values($this->bulbs), true));
+		//log("Returning dump of all bulb information: " . print_r(array_values($this->bulbs), true));
 		return array_values($this->bulbs);
 	}
 	
@@ -387,9 +387,9 @@ class API_Server extends HTTP_Server {
 					$this->LIFX_Bulbs->getBulbByName($args[1])->Set_Power($power);
 					//Light::Get_By_Name($args[1])->Set_Power($power); //TODO: Need to remove this
 				} else {
-					foreach($GLOBALS["lifx"] as $lifx) {
-						if (is_object($lifx)) {
-							$lifx->Set_Power($power);
+					foreach($this->LIFX_Bulbs->getAllBulbs() as $bulb) {
+						if (is_object($bulb)) {
+							$bulb->Set_Power($power);
 						}
 					}
 				}
