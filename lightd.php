@@ -203,7 +203,7 @@ class LIFX_Gateways {
 	// Returns gateway object if exists by mac address of gateway
 	public function getGatewayByMac($gateway_mac) {
 		if (array_key_exists($gateway_mac, $this->gateways)) {
-			log("Checking, and found an existing gateway");
+			log("Checking, and found an existing gateway", LogLevel::DEBUG);
 			return $this->gateways[$gateway_mac];
 		} else {
 			return null;
@@ -219,7 +219,7 @@ Class manages a single bulb
 */
 class Light {
 	
-	static public $all = []; // This is the array that stores all the bulbs
+	//static public $all = []; // This is the array that stores all the bulbs
 
 	public $id;
 	public $label;
@@ -238,7 +238,7 @@ class Light {
 		
 		$this->LIFX_Gateways = & $GLOBALS["LIFX_Gateways"];
 	}
-	
+	/*
 	static public function Get_All() {
 		// DONE!! 
 		return array_values(self::$all);
@@ -266,6 +266,7 @@ class Light {
 			log($l->label . " " . ($l->power ? "on" : "off") . " " . $l->rgb . " @ " . $l->extra["kelvin"] . "K (" . date("Ymd:His", $l->state_ts) . ")");
 		}
 	}
+	*/
 
 	public function Set_Power($power = true) {
 		log("Requesting to set power of {$this->id} to {$power}", LogLevel::INFO);
@@ -345,18 +346,10 @@ class Lifx_Client extends Lifx_Handler {
 		// var_dump($pkt);
 	}
 	public function on_Light_State(Light $l) {
-/*
-		if (isset(Light::$all[$l->id])) {
-			$rl = Light::$all[$l->id];
-		} else {
-			$rl = new Light($l->id, $l->label, $l->gw);
-			*/
 		if ($this->LIFX_Bulbs->getBulbByMac($l->id)) {
 			$rl = $this->LIFX_Bulbs->getBulbByMac($l->id);
 		} else {
 			$rl = new Light($l->id, $l->label, $l->gw);
-		
-			//Light::Register($rl); // TODO: This needs to be removed
 			$this->LIFX_Bulbs->addBulb($rl);
 		}
 		$rl->state_ts = time();
