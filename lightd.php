@@ -60,6 +60,10 @@ use Lightd\Drivers\Lifx\Packet as Lifx_Packet;
 use Lightd\Drivers\Lifx\Handler as Lifx_Handler;
 use Exception;
 
+/* Running vars */
+$LIFX_Gateways = new LIFX_Gateways;
+$LIFX_Bulbs = new Lights();
+
 class LIFX_Gateway {
 	
 	private $mac_address;
@@ -95,12 +99,15 @@ class LIFX_Gateway {
 		return true;
 	}
 	
+	public function getSocketConnection() {
+		return $this->socket_connection;
+	}
+	
 	public function establish_connection() {
 		$this->socket_connection = Nanoserv::New_Connection("tcp://" . $this->ip_address . ":" . $this->listen_port, __NAMESPACE__ . "\\Lifx_Client");
 		$this->socket_connection->Connect();
 		Nanoserv::Run(-1);
 		sleep(1);
-		
 		
 		// Check to see if the socket connection is valid
 		if (!$this->socket_connection->socket->connected) {
@@ -228,13 +235,17 @@ class Light {
 		$this->id = $id;
 		$this->label = $label;
 		$this->gw = $gw;
+		
+		$this->LIFX_Gateways = & $GLOBALS["LIFX_Gateways"];
 	}
 	
 	static public function Get_All() {
+		// DONE!! 
 		return array_values(self::$all);
 	}
 	
 	static public function Get_By_Name($label) {
+		// DONE!!
 		foreach (self::$all as $l) {
 			if ($l->label === $label) {
 				return $l;
@@ -244,23 +255,27 @@ class Light {
 	}
 	
 	static public function Register(self $l) {
+		// DONE!!
 		self::$all[$l->id] = $l;
 		log("new bulb registered: id '{$l->id}', label '{$l->label}' on gw '{$l->gw}'");
 	}
 
 	static public function Dump() {
+		// DONE!!
 		foreach (self::$all as $l) {
 			log($l->label . " " . ($l->power ? "on" : "off") . " " . $l->rgb . " @ " . $l->extra["kelvin"] . "K (" . date("Ymd:His", $l->state_ts) . ")");
 		}
 	}
 
 	public function Set_Power($power = true) {
-		//TODO: I may need to alter this...
-		$GLOBALS["lifx"][$this->gw]->Set_Power($power, $this->id);
+		log("Requesting to set power of {$this->id} to {$power}", LogLevel::INFO);
+		$this->LIFX_Gateways->getGatewayByMac($this->gw)->getSocketConnection()->Set_Power($power, $this->id);
+		//$GLOBALS["lifx"][$this->gw]->Set_Power($power, $this->id); //TODO: Need to remove this
 	}
 
 	public function Set_Color($rgb, array $extra = []) {
-		$GLOBALS["lifx"][$this->gw]->Set_Color($rgb, $extra, $this->id);
+		$this->LIFX_Gateways->getGatewayByMac($this->gw)->getSocketConnection()->Set_Color($rgb, $extra, $this->id);
+		//$GLOBALS["lifx"][$this->gw]->Set_Color($rgb, $extra, $this->id); //TODO: Need to remove this
 	}
 
 }
@@ -271,9 +286,45 @@ Class manages the lights in the network
 */
 class Lights {
 	private $bulbs = [];
+	
+	public function addBulb(Light $newBulb) {
+		$this->bulbs[$newBulb->id] = $newBulb;
+		log("New bulb registered: id '{$newBulb->id}', label '{$newBulb->label}' on gw '{$newBulb->gw}'", LogLevel::INFO);
+	}
+	
+	public function removeBulb() {
+		
+	}
+	
+	public function getAllBulbs() {
+		log("Returning dump of all bulb information: " . print_r(array_values($this->bulbs), true));
+		return array_values($this->bulbs);
+	}
+	
+	public function getBulbByName($bulb_label) {
+		foreach ($this->bulbs as $bulb) {
+			if ($bulb->label === $bulb_label) {
+				return $bulb;
+			}
+		}
+		throw new Exception("Light not found: {$bulb_label}");
+	}
+
+	public function dumpAllBulbInfo() {
+		foreach ($this->bulbs as $bulb) {
+			log($bulb->label . " " . ($bulb->power ? "on" : "off") . " " . $bulb->rgb . " @ " . $bulb->extra["kelvin"] . "K (" . date("Ymd:His", $bulb->state_ts) . ")");
+		}
+		
+	}
+	
 }
 
 class Lifx_Client extends Lifx_Handler {
+	
+	function __construct() {
+		$this->LIFX_Bulbs = & $GLOBALS["LIFX_Bulbs"];
+	}
+	
 	public function on_Connect() {
 		parent::on_Connect();
 	}
@@ -292,7 +343,8 @@ log("bulb B");
 		} else {
 log("bulb C");
 			$rl = new Light($l->id, $l->label, $l->gw);
-			Light::Register($rl);
+			Light::Register($rl); // TODO: This needs to be removed
+			$this->LIFX_Bulbs->addBulb($rl);
 		}
 log("bulb D");
 		$rl->state_ts = time();
@@ -307,6 +359,11 @@ log("bulb D");
 }
 
 class API_Server extends HTTP_Server {
+	
+	function __construct() {
+		$this->LIFX_Bulbs = & $GLOBALS["LIFX_Bulbs"];
+	}
+	
 	public function on_Request($url) {
 		try {
 			log("[{$this->socket->Get_Peer_Name()}] API {$url}");
@@ -327,7 +384,8 @@ class API_Server extends HTTP_Server {
 					throw new Exception("invalid argument '{$args[0]}'");
 				}
 				if ($args[1]) {
-					Light::Get_By_Name($args[1])->Set_Power($power);
+					$this->LIFX_Bulbs->getBulbByName($args[1])->Set_Power($power);
+					//Light::Get_By_Name($args[1])->Set_Power($power); //TODO: Need to remove this
 				} else {
 					foreach($GLOBALS["lifx"] as $lifx) {
 						if (is_object($lifx)) {
@@ -346,7 +404,8 @@ class API_Server extends HTTP_Server {
 				$dim = $extraargs[4];
 				$kelvin = $extraargs[5];
 				if ($args[1]) {
-					Light::Get_By_Name($args[1])->Set_Color($rgb, [ "hue" => $hue, "saturation" => $saturation, "brightness" => $brightness, "dim" => $dim, "kelvin" => $kelvin]);
+					$this->LIFX_Bulbs->getBulbByName($args[1])->Set_Color($rgb, [ "hue" => $hue, "saturation" => $saturation, "brightness" => $brightness, "dim" => $dim, "kelvin" => $kelvin]);
+					//Light::Get_By_Name($args[1])->Set_Color($rgb, [ "hue" => $hue, "saturation" => $saturation, "brightness" => $brightness, "dim" => $dim, "kelvin" => $kelvin]); //TODO: Need to remove this
 				} else {
 					foreach($GLOBALS["lifx"] as $lifx) {
 						if (is_object($lifx)) {
@@ -358,9 +417,11 @@ class API_Server extends HTTP_Server {
 
 				case "state":
 				if ($args[0]) {
-					return json_encode(Light::Get_By_Name($args[0]), JSON_PRETTY_PRINT);
+					return json_encode($this->LIFX_Bulbs->getBulbByName($args[0]), JSON_PRETTY_PRINT);
+					//return json_encode(Light::Get_By_Name($args[0]), JSON_PRETTY_PRINT); //TODO: This needs to be removed
 				} else {
-					return json_encode(Light::Get_All(), JSON_PRETTY_PRINT);
+					return json_encode($this->LIFX_Bulbs->getAllBulbs(), JSON_PRETTY_PRINT);
+					//return json_encode(Light::Get_All(), JSON_PRETTY_PRINT); //TODO: This needs to be removed
 				}
 				break;
 				
@@ -377,7 +438,8 @@ class API_Server extends HTTP_Server {
 					$fade = $args[1];
 				}
 				foreach ($GLOBALS["patterns"][$args[0]] as $bname => $bdata) {
-					$l = Light::Get_By_Name($bname);
+					$l = $this->LIFX_Bulbs->getBulbByName($bname);
+					//$l = Light::Get_By_Name($bname); //TODO: Need to remove this
 					$l->Set_Power($bdata["power"]);
 					if ($bdata["rgb"]) {
 						$rgb = "#" . $bdata["rgb"];
@@ -395,6 +457,7 @@ class API_Server extends HTTP_Server {
 			return "ok";
 		} catch (Exception $e) {
 			$this->Set_Response_Status(400);
+			log("API Exception 400 thrown: {$e->getMessage()}", LogLevel::INFO);
 			return "error: {$e->getMessage()}";
 		}
 	}
@@ -525,9 +588,6 @@ log("loaded " . count($patterns) . " patterns");
 Nanoserv::New_Listener("tcp://" . API_LISTEN_ADDR . ":" . API_LISTEN_PORT, __NAMESPACE__ . "\\API_Server")->Activate();
 log("API server listening on port " . API_LISTEN_PORT, LogLevel::INFO);
 
-/* Running vars */
-$lifx_gateways = new LIFX_Gateways;
-
 // Enter loop and manage
 log("Looking for Gateways...", LogLevel::INFO);
 
@@ -542,16 +602,16 @@ while (true) {
 	// Loop through found gateways and add to object
 	foreach ($gws as $gw) {
 		
-		if ($lifx_gateways->getGatewayByMac($gw["mac_address"])) {
+		if ($LIFX_Gateways->getGatewayByMac($gw["mac_address"])) {
 			// The gateway exists already
 			
 			// Update the connection, if needed
-			$lifx_gateways->getGatewayByMac($gw["mac_address"])->maintainConnection($t);
+			$LIFX_Gateways->getGatewayByMac($gw["mac_address"])->maintainConnection($t);
 			continue;
 		} else {
 			// The gateway doesn't exist, so let's add it
 			$tmp_gw = new LIFX_Gateway($gw["mac_address"], $gw["ip_address"], $gw["listen_port"], time());
-			if($lifx_gateways->addGateway($tmp_gw)) {
+			if($LIFX_Gateways->addGateway($tmp_gw)) {
 				log("Added new gateway " . $gw["mac_address"], LogLevel::INFO);
 			} else {
 				log("Error trying to ad new gateway " . $gw["mac_address"], LogLevel::INFO);
@@ -565,19 +625,17 @@ while (true) {
 	log("Looking for gateways that have gone away.");
 //	print_r($gws);
 //	print_r($lifx_gateways->getGateways());
-	$missing_gws = array_keys(array_diff_key($lifx_gateways->getGateways(), $gws));
+	$missing_gws = array_keys(array_diff_key($LIFX_Gateways->getGateways(), $gws));
 	log("Result of missing gateway check: " . print_r($missing_gws, true), LogLevel::DEBUG);
 	if ($missing_gws) {
 		log("Found " . count($missing_gws) . " gateways that have gone away.");
 		
 		// Now let's remove these from our object store
-		$removed_gw_count = $lifx_gateways->removeGatewaysByMacInArray($missing_gws);
+		$removed_gw_count = $LIFX_Gateways->removeGatewaysByMacInArray($missing_gws);
 		
 		log ("Removed " . $removed_gw_count . " missing gateways.");
 	}
 	
-//TODO: 1. remove missing gw
-//TODO: 2. check if IP is the same (update if not)
 }
 
 //TODO: now need to put this into a loop and check the timeout var
