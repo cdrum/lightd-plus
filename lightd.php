@@ -310,6 +310,16 @@ class Lights {
 		throw new Exception("Light not found: {$bulb_label}");
 	}
 
+	public function getBulbByMac($bulb_mac) {
+		foreach ($this->bulbs as $bulb) {
+			if ($bulb->id === $bulb_mac) {
+				return $bulb;
+			}
+		}
+		return false;
+	}
+
+
 	public function dumpAllBulbInfo() {
 		foreach ($this->bulbs as $bulb) {
 			log($bulb->label . " " . ($bulb->power ? "on" : "off") . " " . $bulb->rgb . " @ " . $bulb->extra["kelvin"] . "K (" . date("Ymd:His", $bulb->state_ts) . ")");
@@ -329,24 +339,26 @@ class Lifx_Client extends Lifx_Handler {
 		parent::on_Connect();
 	}
 	public function on_Discover(Lifx_Packet $pkt) {
-
 		parent::on_Discover($pkt);
 	}
 	public function on_Packet(Lifx_Packet $pkt) {
 		// var_dump($pkt);
 	}
 	public function on_Light_State(Light $l) {
-log("bulb A");
+/*
 		if (isset(Light::$all[$l->id])) {
-log("bulb B");
 			$rl = Light::$all[$l->id];
 		} else {
-log("bulb C");
 			$rl = new Light($l->id, $l->label, $l->gw);
-			Light::Register($rl); // TODO: This needs to be removed
+			*/
+		if ($this->LIFX_Bulbs->getBulbByMac($l->id)) {
+			$rl = $this->LIFX_Bulbs->getBulbByMac($l->id);
+		} else {
+			$rl = new Light($l->id, $l->label, $l->gw);
+		
+			//Light::Register($rl); // TODO: This needs to be removed
 			$this->LIFX_Bulbs->addBulb($rl);
 		}
-log("bulb D");
 		$rl->state_ts = time();
 		$rl->id = $l->id;
 		$rl->label = $l->label;
@@ -407,9 +419,9 @@ class API_Server extends HTTP_Server {
 					$this->LIFX_Bulbs->getBulbByName($args[1])->Set_Color($rgb, [ "hue" => $hue, "saturation" => $saturation, "brightness" => $brightness, "dim" => $dim, "kelvin" => $kelvin]);
 					//Light::Get_By_Name($args[1])->Set_Color($rgb, [ "hue" => $hue, "saturation" => $saturation, "brightness" => $brightness, "dim" => $dim, "kelvin" => $kelvin]); //TODO: Need to remove this
 				} else {
-					foreach($GLOBALS["lifx"] as $lifx) {
-						if (is_object($lifx)) {
-							$lifx->Set_Color($rgb, [ "hue" => $hue, "saturation" => $saturation, "brightness" => $brightness, "kelvin" => $kelvin, "dim" => $dim]);
+					foreach($this->LIFX_Bulbs->getAllBulbs() as $bulb) {
+						if (is_object($bulb)) {
+							$bulb->Set_Color($rgb, [ "hue" => $hue, "saturation" => $saturation, "brightness" => $brightness, "kelvin" => $kelvin, "dim" => $dim]);
 						}
 					}
 				}
