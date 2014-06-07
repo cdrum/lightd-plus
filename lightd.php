@@ -225,48 +225,39 @@ class Light {
 	public $label;
 	public $gw;
 	public $tags;
-	public $state_ts;
-
 	public $rgb;
 	public $power;
 	public $extra;
+	public $state_ts;
 
-	public function __construct($id = null, $label = null, $gw = null) {
+	public function __construct($id = null, $label = null, $gw = null, $tags = null, $rgb = null, $power = null, $extra = null) {
 		$this->id = $id;
 		$this->label = $label;
 		$this->gw = $gw;
+		$this->tags = $tags;
+		$this->rgb = $rgb;
+		$this->power = $power;
+		$this->extra = $extra;
+		
+		$this->state_ts = time();
 		
 		$this->LIFX_Gateways = & $GLOBALS["LIFX_Gateways"];
 	}
-	/*
-	static public function Get_All() {
-		// DONE!! 
-		return array_values(self::$all);
-	}
 	
-	static public function Get_By_Name($label) {
-		// DONE!!
-		foreach (self::$all as $l) {
-			if ($l->label === $label) {
-				return $l;
-			}
-		}
-		throw new Exception("light not found: {$label}");
+	public function refreshBulb($id, $label, $gw, $tags, $rgb, $power, $extra) {		
+		log("Refreshing bulb information for bulb {$id}", LogLevel::DEBUG);
+		
+		$this->id = $id;
+		$this->label = $label;
+		$this->gw = $gw;
+		$this->tags = $tags;
+		$this->rgb = $rgb;
+		$this->power = $power;
+		$this->extra = $extra;
+		
+		// Refreshed now
+		$this->state_ts = time();
 	}
-	
-	static public function Register(self $l) {
-		// DONE!!
-		self::$all[$l->id] = $l;
-		log("new bulb registered: id '{$l->id}', label '{$l->label}' on gw '{$l->gw}'");
-	}
-
-	static public function Dump() {
-		// DONE!!
-		foreach (self::$all as $l) {
-			log($l->label . " " . ($l->power ? "on" : "off") . " " . $l->rgb . " @ " . $l->extra["kelvin"] . "K (" . date("Ymd:His", $l->state_ts) . ")");
-		}
-	}
-	*/
 
 	public function Set_Power($power = true) {
 		log("Requesting to set power of {$this->id} to {$power}", LogLevel::INFO);
@@ -293,8 +284,15 @@ class Lights {
 		log("New bulb registered: id '{$newBulb->id}', label '{$newBulb->label}' on gw '{$newBulb->gw}'", LogLevel::INFO);
 	}
 	
-	public function removeBulb() {
-		
+	public function removeBulb($bulb) {
+		if (array_key_exists($bulb->id, $this->bulbs)) {
+			unset($this->bulbs[$bulb->id]);
+			log("Successfully removed bulb {$bulb->id}");
+			return true;
+		} else {
+			log("Hmm.. tried to remove a bulb that didnt exist. This seems like a problem to me...");
+			exit(1);
+		}
 	}
 	
 	public function getAllBulbs() {
@@ -319,7 +317,24 @@ class Lights {
 		}
 		return false;
 	}
+	
+	public function removeOldBulbs($last_heard_from = 100) { // default 100 seconds
 
+		$removed_count = 0;
+		
+		foreach ($this->bulbs as $bulb) {
+			if ((time() - $bulb->state_ts) > $last_heard_from) {
+				$this->removeBulb($bulb);
+				$removed_count++;
+			}
+		}
+		
+		if ($removed_count) {
+			log("Removed {$removed_count} bulbs that we haven't heard from in {$last_heard_from} seconds.");
+		}
+		
+		return $removed_count;
+	}
 
 	public function dumpAllBulbInfo() {
 		foreach ($this->bulbs as $bulb) {
@@ -347,19 +362,12 @@ class Lifx_Client extends Lifx_Handler {
 	}
 	public function on_Light_State(Light $l) {
 		if ($this->LIFX_Bulbs->getBulbByMac($l->id)) {
-			$rl = $this->LIFX_Bulbs->getBulbByMac($l->id);
+			$this->LIFX_Bulbs->getBulbByMac($l->id)->refreshBulb($l->id, $l->label, $l->gw, $l->tags, $l->rgb, $l->power, $l->extra);
+			//$rl = $this->LIFX_Bulbs->getBulbByMac($l->id);
 		} else {
-			$rl = new Light($l->id, $l->label, $l->gw);
+			$rl = new Light($l->id, $l->label, $l->gw, $l->tags, $l->rgb, $l->power, $l->extra);
 			$this->LIFX_Bulbs->addBulb($rl);
 		}
-		$rl->state_ts = time();
-		$rl->id = $l->id;
-		$rl->label = $l->label;
-		$rl->gw = $l->gw;
-		$rl->tags = $l->tags;
-		$rl->rgb = $l->rgb;
-		$rl->power = $l->power;
-		$rl->extra = $l->extra;
 	}
 }
 
@@ -594,53 +602,63 @@ Nanoserv::New_Listener("tcp://" . API_LISTEN_ADDR . ":" . API_LISTEN_PORT, __NAM
 log("API server listening on port " . API_LISTEN_PORT, LogLevel::INFO);
 
 // Enter loop and manage
-log("Looking for Gateways...", LogLevel::INFO);
+log("Starting up...", LogLevel::INFO);
 
+$loop_time = time();	
 while (true) {
 	Nanoserv::Run(-1);
 	$t = time();
 	
 	
-	// Get initial list of gateways
-	$gws = find_gateways(); // TODO: put this in the class
+	// Every 5 seconds, check for gateways
+	if ((time() - $loop_time) >= 5) {
+		// Get initial list of gateways
+		$gws = find_gateways(); // TODO: put this in the class
 
-	// Loop through found gateways and add to object
-	foreach ($gws as $gw) {
-		
-		if ($LIFX_Gateways->getGatewayByMac($gw["mac_address"])) {
-			// The gateway exists already
-			
-			// Update the connection, if needed
-			$LIFX_Gateways->getGatewayByMac($gw["mac_address"])->maintainConnection($t);
-			continue;
-		} else {
-			// The gateway doesn't exist, so let's add it
-			$tmp_gw = new LIFX_Gateway($gw["mac_address"], $gw["ip_address"], $gw["listen_port"], time());
-			if($LIFX_Gateways->addGateway($tmp_gw)) {
-				log("Added new gateway " . $gw["mac_address"], LogLevel::INFO);
+		// Loop through found gateways and add to object
+		foreach ($gws as $gw) {
+
+			if ($LIFX_Gateways->getGatewayByMac($gw["mac_address"])) {
+				// The gateway exists already
+
+				// Update the connection, if needed
+				$LIFX_Gateways->getGatewayByMac($gw["mac_address"])->maintainConnection($t);
+				continue;
 			} else {
-				log("Error trying to ad new gateway " . $gw["mac_address"], LogLevel::INFO);
-			}
+				// The gateway doesn't exist, so let's add it
+				$tmp_gw = new LIFX_Gateway($gw["mac_address"], $gw["ip_address"], $gw["listen_port"], time());
+				if($LIFX_Gateways->addGateway($tmp_gw)) {
+					log("Added new gateway " . $gw["mac_address"], LogLevel::INFO);
+				} else {
+					log("Error trying to ad new gateway " . $gw["mac_address"], LogLevel::INFO);
+				}
 
-			unset($tmp_gw); // clear our temporary object from memory as we added it to our object of gateways
+				unset($tmp_gw); // clear our temporary object from memory as we added it to our object of gateways
+			}
 		}
+
+		// Now let's see if we need to remove any gateways, such as if an existing gw was turned off, or absorved by another
+		log("Looking for gateways that have gone away.");
+	//	print_r($gws);
+	//	print_r($lifx_gateways->getGateways());
+		$missing_gws = array_keys(array_diff_key($LIFX_Gateways->getGateways(), $gws));
+		log("Result of missing gateway check: " . print_r($missing_gws, true), LogLevel::DEBUG);
+		if ($missing_gws) {
+			log("Found " . count($missing_gws) . " gateways that have gone away.");
+
+			// Now let's remove these from our object store
+			$removed_gw_count = $LIFX_Gateways->removeGatewaysByMacInArray($missing_gws);
+
+			log ("Removed " . $removed_gw_count . " missing gateways.");
+		}
+		$loop_time = time();
 	}
-	
-	// Now let's see if we need to remove any gateways, such as if an existing gw was turned off, or absorved by another
-	log("Looking for gateways that have gone away.");
-//	print_r($gws);
-//	print_r($lifx_gateways->getGateways());
-	$missing_gws = array_keys(array_diff_key($LIFX_Gateways->getGateways(), $gws));
-	log("Result of missing gateway check: " . print_r($missing_gws, true), LogLevel::DEBUG);
-	if ($missing_gws) {
-		log("Found " . count($missing_gws) . " gateways that have gone away.");
-		
-		// Now let's remove these from our object store
-		$removed_gw_count = $LIFX_Gateways->removeGatewaysByMacInArray($missing_gws);
-		
-		log ("Removed " . $removed_gw_count . " missing gateways.");
-	}
-	
+
+	// Check for old bulbs - bulbs that haven't been updqted for a while...
+	$LIFX_Bulbs->removeOldBulbs(100);
+
+	// Wait a second until the next run
+	sleep(1);
 }
 
 //TODO: now need to put this into a loop and check the timeout var
