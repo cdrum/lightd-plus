@@ -31,7 +31,7 @@ Packet Descriptions 2: https://github.com/magicmonkey/lifxjs/blob/master/wiresha
 
 namespace Lightd;
 
-const VERSION = "0.9.2 (e)cdrum";
+const VERSION = "0.9.3 (e)cdrum";
 
 //const LIFX_HOST = "lifx";
 const LIFX_PORT = 56700;
@@ -63,6 +63,7 @@ use Exception;
 /* Running vars */
 $LIFX_Gateways = new LIFX_Gateways;
 $LIFX_Bulbs = new Lights();
+$LIFX_Patterns = new Patterns;
 
 class LIFX_Gateway {
 	
@@ -208,10 +209,7 @@ class LIFX_Gateways {
 		} else {
 			return null;
 		}
-	}
-	
-
-	
+	}	
 }
 
 /*
@@ -261,13 +259,26 @@ class Light {
 
 	public function Set_Power($power = true) {
 		log("Requesting to set power of {$this->id} to {$power}", LogLevel::INFO);
+		
+		// Check if our socket connection exists, if not, fail gracefully
+		if (!is_object($this->LIFX_Gateways->getGatewayByMac($this->gw))) {
+			log("Unable to connect to socket (the gateway object doesn't exist!), hopefully this is temporary!");
+			return;
+		}
+		
 		$this->LIFX_Gateways->getGatewayByMac($this->gw)->getSocketConnection()->Set_Power($power, $this->id);
-		//$GLOBALS["lifx"][$this->gw]->Set_Power($power, $this->id); //TODO: Need to remove this
 	}
 
 	public function Set_Color($rgb, array $extra = []) {
+		log("Requesting to set color of {$this->id} to {$rgb}", LogLevel::INFO);
+		
+		// Check if our socket connection exists, if not, fail gracefully
+		if (!is_object($this->LIFX_Gateways->getGatewayByMac($this->gw))) {
+			log("Unable to connect to socket (the gateway object doesn't exist!), hopefully this is temporary!");
+			return;
+		}
+		
 		$this->LIFX_Gateways->getGatewayByMac($this->gw)->getSocketConnection()->Set_Color($rgb, $extra, $this->id);
-		//$GLOBALS["lifx"][$this->gw]->Set_Color($rgb, $extra, $this->id); //TODO: Need to remove this
 	}
 
 }
@@ -345,6 +356,95 @@ class Lights {
 	
 }
 
+/*
+Struct for pattern bulb config
+*/
+
+class BulbPatternConfig {
+	public $power;
+	public $rgb;
+	public $kelvin;
+}
+
+/*
+Class for defining a pattern
+*/
+class Pattern {
+	
+	private $pattern_name;
+	private $pattern_config;
+	
+	public function __construct($pattern_name = null) {
+		if (!$pattern_name) {
+			return null;
+		}
+		
+		$this->pattern_name = $pattern_name;
+		$this->pattern_config = array();
+	}
+	
+	public function addPatternElement($bulb_name = null, $bulb_config_string = null) {
+		if (!$bulb_name) {
+			return null;
+		} else {
+			if (!array_key_exists($bulb_name, $this->pattern_config)) {
+				$this->pattern_config[$bulb_name] = new BulbPatternConfig;
+			}
+		}
+		
+		// Extract the power status
+		$this->pattern_config[$bulb_name]->power = ($bulb_config_string !== "off") ? 1: 0;
+
+		// Get RGB Config
+		if (preg_match('/#([0-9a-fA-F]{6})/', $bulb_config_string, $res)) {
+			$this->pattern_config[$bulb_name]->rgb = $res[1];
+		}
+		
+		// Get Kelvin Config
+		if (preg_match('/([0-9]+)K/', $bulb_config_string, $res)) {
+			$this->pattern_config[$bulb_name]->kelvin = $res[1];
+		}	
+	}
+	
+	public function getPatternName() {
+		return $this->pattern_name;
+	}
+	
+	public function getPatternConfig() {
+		return $this->pattern_config;
+	}
+}
+
+/*
+Class for managing patterns
+*/
+class Patterns {
+	private $patterns = [];
+	
+	function addPattern($pattern) {
+		if (!is_object($pattern)) {
+			return 0;
+		}
+
+		$this->patterns[$pattern->getPatternName()] = $pattern;
+		log("Added a new pattern named {$pattern->getPatternName()}.");
+	}
+	
+	public function countPatterns() {
+		return count($this->patterns);
+	}
+	
+	public function getPatternByName($pattern_name) {
+		foreach ($this->patterns as $pattern) {
+			if ($pattern->getPatternName() === $pattern_name) {
+				return $pattern;
+			}
+		}
+		
+		return false;
+	}	
+}
+
 class Lifx_Client extends Lifx_Handler {
 	
 	function __construct() {
@@ -375,6 +475,7 @@ class API_Server extends HTTP_Server {
 	
 	function __construct() {
 		$this->LIFX_Bulbs = & $GLOBALS["LIFX_Bulbs"];
+		$this->LIFX_Patterns = & $GLOBALS["LIFX_Patterns"];
 	}
 	
 	public function on_Request($url) {
@@ -398,7 +499,6 @@ class API_Server extends HTTP_Server {
 				}
 				if ($args[1]) {
 					$this->LIFX_Bulbs->getBulbByName($args[1])->Set_Power($power);
-					//Light::Get_By_Name($args[1])->Set_Power($power); //TODO: Need to remove this
 				} else {
 					foreach($this->LIFX_Bulbs->getAllBulbs() as $bulb) {
 						if (is_object($bulb)) {
@@ -418,7 +518,6 @@ class API_Server extends HTTP_Server {
 				$kelvin = $extraargs[5];
 				if ($args[1]) {
 					$this->LIFX_Bulbs->getBulbByName($args[1])->Set_Color($rgb, [ "hue" => $hue, "saturation" => $saturation, "brightness" => $brightness, "dim" => $dim, "kelvin" => $kelvin]);
-					//Light::Get_By_Name($args[1])->Set_Color($rgb, [ "hue" => $hue, "saturation" => $saturation, "brightness" => $brightness, "dim" => $dim, "kelvin" => $kelvin]); //TODO: Need to remove this
 				} else {
 					foreach($this->LIFX_Bulbs->getAllBulbs() as $bulb) {
 						if (is_object($bulb)) {
@@ -431,10 +530,8 @@ class API_Server extends HTTP_Server {
 				case "state":
 				if ($args[0]) {
 					return json_encode($this->LIFX_Bulbs->getBulbByName($args[0]), JSON_PRETTY_PRINT);
-					//return json_encode(Light::Get_By_Name($args[0]), JSON_PRETTY_PRINT); //TODO: This needs to be removed
 				} else {
 					return json_encode($this->LIFX_Bulbs->getAllBulbs(), JSON_PRETTY_PRINT);
-					//return json_encode(Light::Get_All(), JSON_PRETTY_PRINT); //TODO: This needs to be removed
 				}
 				break;
 				
@@ -444,20 +541,28 @@ class API_Server extends HTTP_Server {
 						"current" => $GLOBALS["current_pattern"],
 						"ts" => $GLOBALS["current_pattern_ts"],
 					]);
-				} else if (!isset($GLOBALS["patterns"][$args[0]])) {
+				} else if (!$this->LIFX_Patterns->getPatternByName($args[0])) {
 					throw new Exception("unknown pattern '{$args[0]}'");
 				}
+				
+				// Fade?
 				if ($args[1]) {
 					$fade = $args[1];
+				} else {
+					$fade = null;
 				}
-				foreach ($GLOBALS["patterns"][$args[0]] as $bname => $bdata) {
-					$l = $this->LIFX_Bulbs->getBulbByName($bname);
-					//$l = Light::Get_By_Name($bname); //TODO: Need to remove this
-					$l->Set_Power($bdata["power"]);
-					if ($bdata["rgb"]) {
-						$rgb = "#" . $bdata["rgb"];
-						$l->Set_Color($rgb, [ 
-							"kelvin" => $bdata["kelvin"],
+				
+				// Assumption here is there is only one pattern element for each bulb in pattern, so loop through each element
+				foreach ($this->LIFX_Patterns->getPatternByName($args[0])->getPatternConfig() as $bulb_name => $bulb_config) {
+
+					// Set power
+					$this->LIFX_Bulbs->getBulbByName($bulb_name)->Set_Power($bulb_config->power);
+
+					// Set RGB / Kelvin
+					if ($bulb_config->rgb) {
+						$rgb = "#" . $bulb_config->rgb;
+						$this->LIFX_Bulbs->getBulbByName($bulb_name)->Set_Color($rgb, [ 
+							"kelvin" => $bulb_config->kelvin,
 							"fade" => $fade,
 						]);
 					}
@@ -494,6 +599,7 @@ function log($msg, $level = LogLevel::DEBUG) {
 }
 
 /* Function to get list of active gateways */
+// TODO: move this to a class
 function find_gateways() {
 	log("Looking for LIFX Gateways");
 	
@@ -573,29 +679,21 @@ function find_gateways() {
 
 log("lightd-plus/" . VERSION . " Original (c) 2014 by sIX / aEGiS <six@aegis-corp.org> | New (c) 2014 Chris Drumgoole / cdrum.com", LogLevel::INFO);
 
-$patterns = [];
 $current_pattern = "off";
 $current_pattern_ts = 0;
 
 foreach (parse_ini_file(dirname(__FILE__) . DIRECTORY_SEPARATOR . "patterns.ini", true, INI_SCANNER_RAW) as $pname => $bulbs) {
-	$bdata = [];
+
+	$newPattern = new Pattern($pname);
 	foreach ($bulbs as $bname => $str) {
-		$power = ($str !== "off");
-		$bcmd = [ "power" => $power ];
-		if ($power) {
-			if (preg_match('/#([0-9a-fA-F]{6})/', $str, $res)) {
-				$bcmd["rgb"] = $res[1];
-			}
-			if (preg_match('/([0-9]+)K/', $str, $res)) {
-				$bcmd["kelvin"] = $res[1];
-			}
-		}
-		$bdata[$bname] = $bcmd;
+		$newPattern->addPatternElement($bname, $str);
 	}
-	$patterns[$pname] = $bdata;
+	
+	// Add pattern to config
+	$LIFX_Patterns->addPattern($newPattern);
 }
 
-log("loaded " . count($patterns) . " patterns");
+log("Loaded " . $LIFX_Patterns->countPatterns() . " patterns.");
 
 // Run the API listener
 Nanoserv::New_Listener("tcp://" . API_LISTEN_ADDR . ":" . API_LISTEN_PORT, __NAMESPACE__ . "\\API_Server")->Activate();
@@ -660,179 +758,4 @@ while (true) {
 	// Wait a second until the next run
 	sleep(1);
 }
-
-//TODO: now need to put this into a loop and check the timeout var
-
-
-/*
-$gws = build_gateways();
-//print_r($gws);
-
-$num_gws = count($gws);
-log("Found " . $num_gws . " gateways to connect to");
-
-// Make array to hold the lifx gateway connections
-//$lifx = array($num_gws);
-$lifx = array();
-
-foreach($gws as $gw) {
-	$lifx[$gw["mac"]] = Nanoserv::New_Connection("tcp://" . $gw["ip"] . ":" . $gw["port"], __NAMESPACE__ . "\\Lifx_Client");
-	$lifx[$gw["mac"]]->Connect();
-	
-	Nanoserv::Run(1);
-
-	if (!$lifx[$gw["mac"]]->socket->connected) {
-		log("cannot connect");
-		exit(1);
-	}
-	
-	// Add refresh time as we'll use it later 
-	$gw["last_refresh_ts"] = time();
-}
-
-
-Nanoserv::New_Listener("tcp://" . API_LISTEN_ADDR . ":" . API_LISTEN_PORT, __NAMESPACE__ . "\\API_Server")->Activate();
-log("API server listening on port " . API_LISTEN_PORT);
-
-while (true) {
-	Nanoserv::Run(-1);
-	$t = time();
-
-	log("looking for more gateways");
-	$gws = build_gateways($gws);
-	
-	// Check if there are any new gateways or if we need to remove any
-	foreach($gws as &$gw) {
-		// First, check if we have any new ones
-		if (!array_key_exists($gw["mac"], $lifx)) {
-			
-			log("Found a new gw bulb at " . $gw["mac"]);
-			
-			$lifx[$gw["mac"]] = Nanoserv::New_Connection("tcp://" . $gw["ip"] . ":" . $gw["port"], __NAMESPACE__ . "\\Lifx_Client");
-			$lifx[$gw["mac"]]->Connect();
-
-			Nanoserv::Run(1);
-
-			if (!$lifx[$gw["mac"]]->socket->connected) {
-				log("cannot connect to new gw " . $gw["mac"]);
-				unset($lifx[$gw["mac"]]);
-			}
-			
-			// Add refresh time as we'll use it later 
-			$gw["last_refresh_ts"] = time();
-		}
-		
-
-	}
-	
-	//TODO: I was here, just added this and it fails. I think it's because I'm not adding it to the array properly
-	//TODO: What I think I need to do is separate finding GWs from managing and connecting to them. Then when a new one is found, call the connect
-	//TODO: When one isn't found, then either try reconnecting, or remove it from our arrays.
-
-	foreach($gws as &$gw) {
-		
-		if ($lifx[$gw["mac"]]->must_reconnect) {
-			log("lost connection, trying to reconnect ...");
-			sleep(3);
-			$lifx[$gw["mac"]] = Nanoserv::New_Connection("tcp://" . $gw["ip"] . ":" . $gw["port"], __NAMESPACE__ . "\\Lifx_Client");
-			$lifx[$gw["mac"]]->Connect();
-			Nanoserv::Run(-1);
-		} else {
-			if (($gw["last_refresh_ts"] + 2) < $t) {
-				log("Refreshing state of gw " . $gw["mac"]);
-				$lifx[$gw["mac"]]->Refresh_States();
-				$gw["last_refresh_ts"] = $t;
-			}
-		}
-	}
-	
-	sleep(2);
-}
-*/
-
-/*
-function build_gateways(&$gateways = null) {
-	
-	log("Getting Gateways");
-	
-	// Create packet for requesting gateways
-	$packet = new Lifx_Packet(0x02);
-	$broadcast_string = $packet->Encode();
-
-	// Make socket for broadcasting request on network
-	log("Creating broadcast socket");
-	$broadcast_socket = socket_create(AF_INET, SOCK_DGRAM, SOL_UDP); 
-	if ($broadcast_socket == false) { die("SendSock: ".socket_strerror(socket_last_error())); } 
-
-	$setopt = socket_set_option($broadcast_socket, SOL_SOCKET, SO_BROADCAST, 1); 
-	if ($setopt == false) { die(socket_strerror(socket_last_error())); } 
-
-	log("Sending broadcast");
-	socket_sendto($broadcast_socket, $broadcast_string, strlen($broadcast_string), 0, '255.255.255.255', LIFX_PORT); 
-	
-	log("Closing broadcast socket");
-	socket_close($broadcast_socket);
-
-	// Make socket for listening for broadcast responses
-	log("Creating listening socket");
-	$listen_socket = socket_create(AF_INET, SOCK_DGRAM, SOL_UDP); 
-	if ($listen_socket == false) { die("SendSock: ".socket_strerror(socket_last_error())); } 
-	if (socket_bind($listen_socket, "0.0.0.0", 56700) === false) {
-	    echo "socket_bind() failed: reason: " . socket_strerror(socket_last_error($listen_socket)) . "\n";
-	}
-
-	socket_set_option($listen_socket,SOL_SOCKET,SO_RCVTIMEO,array("sec"=>1,"usec"=>0));
-
-	// Create gw holder array
-	$gateways = array();
-	
-	// Hiding listen timeout warnings
-	$oldErrorReporting = error_reporting(); // save error reporting level
-	error_reporting($oldErrorReporting ^ E_WARNING); // disable warnings
-	
-	// Loop through an arbitrary number of passes.
-	$pass = 0;
-	while ($pass < BUILD_GW_PASSES) {
-
-		// Create receive variables
-		$from = null;
-		$port = null;
-		$buf = null;
-
-		log("Listen pass " . $pass);
-		if (!socket_recvfrom($listen_socket, $buf, 41, 0, $from, $port)) {
-			$pass++;
-			continue;
-		}
-
-		$pkt = Lifx_Packet::Decode($buf);
-		if ($pkt->type === 0x03) {
-			log("Received a valid 0x03 response from " . $from . ", size of response is " . strlen($buf));
-			log("Payload length: " . strlen($pkt->payload));
-
-			// Extract the port (should be 56700, but just in case...)
-			$port = unpack("V", substr($pkt->payload, 1, 4))[1];
-			log("Gateway " . $pkt->gateway_mac . " port is " . $port);
-
-			$gw = array(	
-				"mac" => $pkt->gateway_mac,
-				"ip" => $from,
-				"port" => $port,
-				"last_refresh_ts" => ""		// Add refresh time as we'll use it later 
-			);
-
-			$gateways[$pkt->gateway_mac] = $gw;
-		}
-
-		$pass++;
-	}
-	error_reporting($oldErrorReporting); // restore error reporting level
-
-	log("Closing listening socket");
-	socket_close($listen_socket);
-
-	return $gateways;
-
-}
-*/
 ?>
