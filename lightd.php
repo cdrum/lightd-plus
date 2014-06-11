@@ -487,7 +487,7 @@ function encapsulateApiResponse($response, $response_type = ApiResponseType::OK)
 			$response_container["error"]["message"] = $response;
 			break;
 		case ApiResponseType::OK:
-			$response_container["message"] = $response;
+			$response_container["response"] = $response;
 			break;
 		default:
 			break;
