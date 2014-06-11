@@ -47,6 +47,12 @@ abstract class LogLevel
     const INFO = 1;
 }
 
+abstract class ApiResponseType
+{
+	const ERROR = 0;
+	const OK = 1;
+}
+
 const LOG_LEVEL = LogLevel::DEBUG;
 
 require_once "nanoserv/nanoserv.php";
@@ -471,6 +477,25 @@ class Lifx_Client extends Lifx_Handler {
 	}
 }
 
+function encapsulateApiResponse($response, $response_type = ApiResponseType::OK) {
+	
+	$response_container = array();
+	
+	switch($response_type) {
+		case ApiResponseType::ERROR:
+			$response_container["error"] = array();
+			$response_container["error"]["message"] = $response;
+			break;
+		case ApiResponseType::OK:
+			$response_container["message"] = $response;
+			break;
+		default:
+			break;
+	}
+	
+	return json_encode($response_container, JSON_PRETTY_PRINT);
+}
+
 class API_Server extends HTTP_Server {
 	
 	function __construct() {
@@ -486,97 +511,102 @@ class API_Server extends HTTP_Server {
 			switch ($cmd) {
 				
 				case "power":
-				switch ($args[0]) {
-					case "on":
-					$power = true;
-					break;
-					case "off":
-					$power = false;
-					break;
-				}
-				if (!isset($power)) {
-					throw new Exception("invalid argument '{$args[0]}'");
-				}
-				if ($args[1]) {
-					$this->LIFX_Bulbs->getBulbByName($args[1])->Set_Power($power);
-				} else {
-					foreach($this->LIFX_Bulbs->getAllBulbs() as $bulb) {
-						if (is_object($bulb)) {
-							$bulb->Set_Power($power);
+					switch ($args[0]) {
+						case "on":
+						$power = true;
+						break;
+						case "off":
+						$power = false;
+						break;
+					}
+					if (!isset($power)) {
+						throw new Exception("invalid argument '{$args[0]}'");
+					}
+					if ($args[1]) {
+						$this->LIFX_Bulbs->getBulbByName($args[1])->Set_Power($power);
+					} else {
+						foreach($this->LIFX_Bulbs->getAllBulbs() as $bulb) {
+							if (is_object($bulb)) {
+								$bulb->Set_Power($power);
+							}
 						}
 					}
-				}
 				break;
 
 				case "color":
-				$extraargs = explode("-",$args[0]);
-				$rgb = "#" . $extraargs[0];
-				$hue= $extraargs[1];
-				$saturation = $extraargs[2];
-				$brightness = $extraargs[3];
-				$dim = $extraargs[4];
-				$kelvin = $extraargs[5];
-				if ($args[1]) {
-					$this->LIFX_Bulbs->getBulbByName($args[1])->Set_Color($rgb, [ "hue" => $hue, "saturation" => $saturation, "brightness" => $brightness, "dim" => $dim, "kelvin" => $kelvin]);
-				} else {
-					foreach($this->LIFX_Bulbs->getAllBulbs() as $bulb) {
-						if (is_object($bulb)) {
-							$bulb->Set_Color($rgb, [ "hue" => $hue, "saturation" => $saturation, "brightness" => $brightness, "kelvin" => $kelvin, "dim" => $dim]);
+					$extraargs = explode("-",$args[0]);
+					$rgb = "#" . $extraargs[0];
+					$hue= $extraargs[1];
+					$saturation = $extraargs[2];
+					$brightness = $extraargs[3];
+					$dim = $extraargs[4];
+					$kelvin = $extraargs[5];
+					if ($args[1]) {
+						$this->LIFX_Bulbs->getBulbByName($args[1])->Set_Color($rgb, [ "hue" => $hue, "saturation" => $saturation, "brightness" => $brightness, "dim" => $dim, "kelvin" => $kelvin]);
+					} else {
+						foreach($this->LIFX_Bulbs->getAllBulbs() as $bulb) {
+							if (is_object($bulb)) {
+								$bulb->Set_Color($rgb, [ "hue" => $hue, "saturation" => $saturation, "brightness" => $brightness, "kelvin" => $kelvin, "dim" => $dim]);
+							}
 						}
 					}
-				}
 				break;
 
 				case "state":
-				if ($args[0]) {
-					return json_encode($this->LIFX_Bulbs->getBulbByName($args[0]), JSON_PRETTY_PRINT);
-				} else {
-					return json_encode($this->LIFX_Bulbs->getAllBulbs(), JSON_PRETTY_PRINT);
-				}
+					if ($args[0]) {
+						return encapsulateApiResponse($this->LIFX_Bulbs->getBulbByName($args[0]));
+					} else {
+						return encapsulateApiResponse($this->LIFX_Bulbs->getAllBulbs());
+					}
 				break;
 				
 				case "pattern":
-				if (!isset($args[0])) {
-					return json_encode([ 
-						"current" => $GLOBALS["current_pattern"],
-						"ts" => $GLOBALS["current_pattern_ts"],
-					]);
-				} else if (!$this->LIFX_Patterns->getPatternByName($args[0])) {
-					throw new Exception("unknown pattern '{$args[0]}'");
-				}
-				
-				// Fade?
-				if ($args[1]) {
-					$fade = $args[1];
-				} else {
-					$fade = null;
-				}
-				
-				// Assumption here is there is only one pattern element for each bulb in pattern, so loop through each element
-				foreach ($this->LIFX_Patterns->getPatternByName($args[0])->getPatternConfig() as $bulb_name => $bulb_config) {
-
-					// Set power
-					$this->LIFX_Bulbs->getBulbByName($bulb_name)->Set_Power($bulb_config->power);
-
-					// Set RGB / Kelvin
-					if ($bulb_config->rgb) {
-						$rgb = "#" . $bulb_config->rgb;
-						$this->LIFX_Bulbs->getBulbByName($bulb_name)->Set_Color($rgb, [ 
-							"kelvin" => $bulb_config->kelvin,
-							"fade" => $fade,
-						]);
+					if (!isset($args[0])) {
+						return encapsulateApiResponse([
+						 	"pattern" => [
+							"current" => $GLOBALS["current_pattern"],
+							"ts" => $GLOBALS["current_pattern_ts"],
+						]
+						], ApiResponseType::OK);
+					} else if (!$this->LIFX_Patterns->getPatternByName($args[0])) {
+						throw new Exception("unknown pattern '{$args[0]}'");
 					}
-				}
-				$GLOBALS["current_pattern"] = $args[0];
-				$GLOBALS["current_pattern_ts"] = time();
-				break;
+				
+					// Fade?
+					if ($args[1]) {
+						$fade = $args[1];
+					} else {
+						$fade = null;
+					}
+				
+					// Assumption here is there is only one pattern element for each bulb in pattern, so loop through each element
+					foreach ($this->LIFX_Patterns->getPatternByName($args[0])->getPatternConfig() as $bulb_name => $bulb_config) {
 
+						// Set power
+						$this->LIFX_Bulbs->getBulbByName($bulb_name)->Set_Power($bulb_config->power);
+					
+						// Set RGB / Kelvin
+						if ($bulb_config->rgb) {
+							$rgb = "#" . $bulb_config->rgb;
+							$this->LIFX_Bulbs->getBulbByName($bulb_name)->Set_Color($rgb, [ 
+								"kelvin" => $bulb_config->kelvin,
+								"fade" => $fade,
+							]);
+						}
+					}
+					$GLOBALS["current_pattern"] = $args[0];
+					$GLOBALS["current_pattern_ts"] = time();
+					return encapsulateApiResponse("pattern set", ApiResponseType::OK);
+					break;
+				default:
+					throw new Exception("invalid command '{$cmd}'");
+					break;
 			}
-			return "ok";
+			
 		} catch (Exception $e) {
 			$this->Set_Response_Status(400);
 			log("API Exception 400 thrown: {$e->getMessage()}", LogLevel::INFO);
-			return "error: {$e->getMessage()}";
+			return encapsulateApiResponse("{$e->getMessage()}", ApiResponseType::ERROR);
 		}
 	}
 }
