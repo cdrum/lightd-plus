@@ -477,17 +477,20 @@ class Lifx_Client extends Lifx_Handler {
 	}
 }
 
-function encapsulateApiResponse($response, $response_type = ApiResponseType::OK) {
+function encapsulateApiResponse($object, $errorMessage = null, $response_type = ApiResponseType::OK) {
 	
 	$response_container = array();
 	
 	switch($response_type) {
 		case ApiResponseType::ERROR:
-			$response_container["error"] = array();
-			$response_container["error"]["message"] = $response;
+			$response_container["status"] = "ERROR";
+			$response_container["errorMessage"] = $errorMessage;
+			$response_container["object"] = null;
 			break;
 		case ApiResponseType::OK:
-			$response_container["response"] = $response;
+			$response_container["status"] = "SUCCESS";
+			$response_container["errorMessage"] = $errorMessage;
+			$response_container["object"] = $object;
 			break;
 		default:
 			break;
@@ -596,7 +599,7 @@ class API_Server extends HTTP_Server {
 					}
 					$GLOBALS["current_pattern"] = $args[0];
 					$GLOBALS["current_pattern_ts"] = time();
-					return encapsulateApiResponse("pattern set", ApiResponseType::OK);
+					return encapsulateApiResponse("pattern set");
 					break;
 				default:
 					throw new Exception("invalid command '{$cmd}'");
@@ -606,7 +609,7 @@ class API_Server extends HTTP_Server {
 		} catch (Exception $e) {
 			$this->Set_Response_Status(400);
 			log("API Exception 400 thrown: {$e->getMessage()}", LogLevel::INFO);
-			return encapsulateApiResponse("{$e->getMessage()}", ApiResponseType::ERROR);
+			return encapsulateApiResponse(null, "{$e->getMessage()}", ApiResponseType::ERROR);
 		}
 	}
 }
