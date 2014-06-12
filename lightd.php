@@ -573,7 +573,7 @@ class API_Server extends HTTP_Server {
 							"current" => $GLOBALS["current_pattern"],
 							"ts" => $GLOBALS["current_pattern_ts"],
 						]
-						], ApiResponseType::OK);
+						]);
 					} else if (!$this->LIFX_Patterns->getPatternByName($args[0])) {
 						throw new Exception("unknown pattern '{$args[0]}'");
 					}
