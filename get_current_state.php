@@ -6,7 +6,7 @@ $result = json_decode(file_get_contents(URL . "/state"));
 
 print "For patterns:\n";
 
-foreach($result as $bulb) {
+foreach($result->message	 as $bulb) {
 	
 	$onoff = ($bulb->power) ? "on" : "off";
 	print $bulb->label . " = " . $onoff . "\n";
