@@ -504,9 +504,12 @@ class API_Server extends HTTP_Server {
 	function __construct() {
 		$this->LIFX_Bulbs = & $GLOBALS["LIFX_Bulbs"];
 		$this->LIFX_Patterns = & $GLOBALS["LIFX_Patterns"];
+		parent::Add_Header("Access-Control-Allow-Origin: *");
+		parent::Add_Header("Content-Type: application/json");
 	}
 	
 	public function on_Request($url) {
+	
 		try {
 			log("[{$this->socket->Get_Peer_Name()}] API {$url}");
 			$args = explode("/", ltrim(urldecode($url), "/"));
