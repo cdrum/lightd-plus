@@ -30,6 +30,7 @@ Packet Descriptions 2: https://github.com/magicmonkey/lifxjs/blob/master/wiresha
 */
 
 namespace Lightd;
+header("Access-Control-Allow-Origin: *");
 
 const VERSION = "0.9.3 (e)cdrum";
 
@@ -449,6 +450,18 @@ class Patterns {
 		
 		return false;
 	}	
+	
+	/* 
+	Get an array of pattern names
+	*/
+	public function getPatternNames() {
+		$package = array();
+		foreach ($this->patterns as $pattern) {
+			$package[] = $pattern->getPatternName();
+		}
+		
+		return $package;
+	}
 }
 
 class Lifx_Client extends Lifx_Handler {
@@ -566,6 +579,11 @@ class API_Server extends HTTP_Server {
 					}
 				break;
 				
+				case "patterns":
+					$pattern_names = $this->LIFX_Patterns->getPatternNames();
+					$return_val["patterns"] = $pattern_names;
+					return encapsulateApiResponse($return_val);
+					break;
 				case "pattern":
 					if (!isset($args[0])) {
 						return encapsulateApiResponse([
