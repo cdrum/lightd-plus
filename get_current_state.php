@@ -6,15 +6,12 @@ $result = json_decode(file_get_contents(URL . "/state"));
 
 print "For patterns:\n";
 
-foreach($result->message	 as $bulb) {
+foreach($result->object as $bulb) {
 	
 	$onoff = ($bulb->power) ? "on" : "off";
 	print $bulb->label . " = " . $onoff . "\n";
 	print $bulb->label . " = " . $bulb->rgb . " " . $bulb->extra->kelvin . "K\n"; 
 	
 }
-
-//print_r($result);
-
 
 ?>
