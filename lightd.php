@@ -631,7 +631,7 @@ class API_Server extends HTTP_Server {
 			}
 			
 		} catch (Exception $e) {
-			$this->Set_Response_Status(400);
+			//$this->Set_Response_Status(400);
 			log("API Exception 400 thrown: {$e->getMessage()}", LogLevel::INFO);
 			return encapsulateApiResponse(null, "{$e->getMessage()}", ApiResponseType::ERROR);
 		}
