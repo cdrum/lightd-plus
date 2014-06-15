@@ -324,6 +324,7 @@ class Lights {
 				return $bulb;
 			}
 		}
+		return null;
 		throw new Exception("Light not found: {$bulb_label}");
 	}
 
@@ -545,7 +546,12 @@ class API_Server extends HTTP_Server {
 						throw new Exception("invalid argument '{$args[0]}'");
 					}
 					if ($args[1]) {
-						$this->LIFX_Bulbs->getBulbByName($args[1])->Set_Power($power);
+						$bulb = $this->LIFX_Bulbs->getBulbByName($args[1]);
+						if (!$bulb) {
+							throw new Exception("Bulb " . $args[1] . " does not exist.");
+						} else {
+							$bulb->Set_Power($power);
+						}
 					} else {
 						foreach($this->LIFX_Bulbs->getAllBulbs() as $bulb) {
 							if (is_object($bulb)) {
@@ -564,7 +570,13 @@ class API_Server extends HTTP_Server {
 					$dim = $extraargs[4];
 					$kelvin = $extraargs[5];
 					if ($args[1]) {
-						$this->LIFX_Bulbs->getBulbByName($args[1])->Set_Color($rgb, [ "hue" => $hue, "saturation" => $saturation, "brightness" => $brightness, "dim" => $dim, "kelvin" => $kelvin]);
+						$bulb = $this->LIFX_Bulbs->getBulbByName($args[1]);
+						if (!$bulb) {
+							throw new Exception("Bulb " . $args[1] . " does not exist.");
+						} else {
+							$bulb->Set_Color($rgb, [ "hue" => $hue, "saturation" => $saturation, "brightness" => $brightness, "dim" => $dim, "kelvin" => $kelvin]);
+						}
+
 					} else {
 						foreach($this->LIFX_Bulbs->getAllBulbs() as $bulb) {
 							if (is_object($bulb)) {
@@ -576,7 +588,13 @@ class API_Server extends HTTP_Server {
 
 				case "state":
 					if ($args[0]) {
-						return encapsulateApiResponse($this->LIFX_Bulbs->getBulbByName($args[0]));
+						$bulb = $this->LIFX_Bulbs->getBulbByName($args[0]);
+						if (!$bulb) {
+							throw new Exception("Bulb " . $args[1] . " does not exist.");
+						} else {
+							return encapsulateApiResponse($bulb);
+						}
+						
 					} else {
 						return encapsulateApiResponse($this->LIFX_Bulbs->getAllBulbs());
 					}
@@ -610,15 +628,22 @@ class API_Server extends HTTP_Server {
 					foreach ($this->LIFX_Patterns->getPatternByName($args[0])->getPatternConfig() as $bulb_name => $bulb_config) {
 
 						// Set power
-						$this->LIFX_Bulbs->getBulbByName($bulb_name)->Set_Power($bulb_config->power);
-					
-						// Set RGB / Kelvin
-						if ($bulb_config->rgb) {
-							$rgb = "#" . $bulb_config->rgb;
-							$this->LIFX_Bulbs->getBulbByName($bulb_name)->Set_Color($rgb, [ 
-								"kelvin" => $bulb_config->kelvin,
-								"fade" => $fade,
-							]);
+						$bulb = $this->LIFX_Bulbs->getBulbByName($bulb_name);
+						if (!$bulb) {
+							// Choosing to ignore this quietly - only for pattenrs though!
+						} else {
+							// Set the power of the found bulb
+							$bulb->Set_Power($bulb_config->power);
+							
+							// Set RGB / Kelvin of the found bulb
+							if ($bulb_config->rgb) {
+								$rgb = "#" . $bulb_config->rgb;
+
+								$bulb->Set_Color($rgb, [ 
+									"kelvin" => $bulb_config->kelvin,
+									"fade" => $fade,
+								]);
+							}
 						}
 					}
 					$GLOBALS["current_pattern"] = $args[0];
