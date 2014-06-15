@@ -551,13 +551,17 @@ class API_Server extends HTTP_Server {
 							throw new Exception("Bulb " . $args[1] . " does not exist.");
 						} else {
 							$bulb->Set_Power($power);
+							return encapsulateApiResponse("Set power for " . $args[1]);
 						}
 					} else {
+						$num_bulbs=0;
 						foreach($this->LIFX_Bulbs->getAllBulbs() as $bulb) {
 							if (is_object($bulb)) {
 								$bulb->Set_Power($power);
+								$num_bulbs++;
 							}
 						}
+						return encapsulateApiResponse("Set power for " . $num_bulbs . " bulbs");
 					}
 				break;
 
@@ -575,14 +579,18 @@ class API_Server extends HTTP_Server {
 							throw new Exception("Bulb " . $args[1] . " does not exist.");
 						} else {
 							$bulb->Set_Color($rgb, [ "hue" => $hue, "saturation" => $saturation, "brightness" => $brightness, "dim" => $dim, "kelvin" => $kelvin]);
+							return encapsulateApiResponse("Set color for " . $args[1]);
 						}
 
 					} else {
+						$num_bulbs=0;
 						foreach($this->LIFX_Bulbs->getAllBulbs() as $bulb) {
 							if (is_object($bulb)) {
 								$bulb->Set_Color($rgb, [ "hue" => $hue, "saturation" => $saturation, "brightness" => $brightness, "kelvin" => $kelvin, "dim" => $dim]);
+								$num_bulbs++;
 							}
 						}
+						return encapsulateApiResponse("Set color for " . $num_bulbs . " bulbs");
 					}
 				break;
 
