@@ -30,7 +30,7 @@ Packet Descriptions 2: https://github.com/magicmonkey/lifxjs/blob/master/wiresha
 */
 
 namespace Lightd;
-header("Access-Control-Allow-Origin: *");
+//header("Access-Control-Allow-Origin: *");
 
 const VERSION = "0.9.3 (e)cdrum";
 
@@ -517,12 +517,15 @@ class API_Server extends HTTP_Server {
 	function __construct() {
 		$this->LIFX_Bulbs = & $GLOBALS["LIFX_Bulbs"];
 		$this->LIFX_Patterns = & $GLOBALS["LIFX_Patterns"];
-		parent::Add_Header("Access-Control-Allow-Origin: *");
-		parent::Add_Header("Content-Type: application/json");
+
 	}
 	
 	public function on_Request($url) {
-	
+
+		// Add the headers to the response so that any client can call api
+		parent::Add_Header("Access-Control-Allow-Origin: *");
+		parent::Add_Header("Content-Type: application/json");
+
 		try {
 			log("[{$this->socket->Get_Peer_Name()}] API {$url}");
 			$args = explode("/", ltrim(urldecode($url), "/"));
