@@ -33,8 +33,8 @@ namespace Lightd;
 //header("Access-Control-Allow-Origin: *");
 
 const VERSION = "0.9.3 (e)cdrum";
+const PATH = "/home/cdrum/lightd";
 
-//const LIFX_HOST = "lifx";
 const LIFX_PORT = 56700;
 
 const BUILD_GW_PASSES = 5;
@@ -56,9 +56,10 @@ abstract class ApiResponseType
 
 const LOG_LEVEL = LogLevel::DEBUG;
 
-require_once "nanoserv/nanoserv.php";
-require_once "nanoserv/handlers/HTTP/Server.php";
-require_once "lifx.php";
+set_include_path(PATH . "/");
+require_once PATH . "/nanoserv/nanoserv.php";
+require_once PATH . "/nanoserv/handlers/HTTP/Server.php";
+require_once PATH . "/lifx.php";
 
 use Nanoserv\HTTP\Server as HTTP_Server;
 use Nanoserv\Core as Nanoserv;
